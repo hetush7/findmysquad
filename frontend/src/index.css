@@ -1,0 +1,24 @@
+*{
+    -ms-overflow-style: none;
+}
+::-webkit-scrollbar {
+    display: none;
+}
+
+.gameImg{
+    height: 160px;
+    width: auto;
+    margin-left: auto;
+    margin-right: auto;
+    display:block;
+    max-width:80%;
+}
+
+.btn-kick{
+    background: none!important;
+    border: none;
+    padding: 0!important;
+    color: rgb(153, 0, 0);
+    text-decoration: underline;
+    cursor: pointer;
+}

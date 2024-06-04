@@ -1,0 +1,19 @@
+[
+    {
+        "id": 1,
+        "title": "Apex Legends",
+        "description": "Apex Legends is a free-to-play battle royale-hero shooter game developed by Respawn Entertainment and published by Electronic Arts. It was released for Microsoft Windows, PlayStation 4, and Xbox One in February 2019, and for Nintendo Switch in March 2021.",
+        "posts": [
+            {
+                "userID": 1,
+                "username": "Ken",
+                "text": "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Quisque urna urna, efficitur eu lorem vitae, sollicitudin gravida ligula. Pellentesque auctor augue vitae finibus cursus."
+            },
+            {
+                "userID": 2,
+                "username": "Corey",
+                "text": "Mauris fermentum, orci in rutrum vulputate, enim sem bibendum mi, non ultricies elit ipsum eget dolor. Aliquam vestibulum, mauris luctus porta fringilla, turpis ligula placerat risus, congue vehicula mauris turpis sit amet ex."
+            }
+        ]
+    }
+]

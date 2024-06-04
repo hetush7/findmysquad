@@ -1,0 +1,58 @@
+[
+    {
+        "id": 1,
+        "headerId": "headingOne",
+        "collapseId": "collapseOne",
+        "question": "What is Find My Squad?",
+        "answer": "Find My Squad is an online platform for players to host or join other players to squad up. Take off the frustration and risk of in-game matchmaking and play with people."
+    },
+    {
+        "id": 2,
+        "headerId": "headingTwo",
+        "collapseId": "collapseTwo",
+        "question": "Is there matchmaking?",
+        "answer": "No. Anyone can join and leave a session or create their own with their own join requirements. It is up to each user to honor those requirements."
+    },
+    {
+        "id": 3,
+        "headerId": "headingThree",
+        "collapseId": "collapseThree",
+        "question": "Do I have to register to use the platform?",
+        "answer": "Yes. To use our service, you must be logged in."
+    },
+    {
+        "id": 4,
+        "headerId": "headingFour",
+        "collapseId": "collapseFour",
+        "question": "Does the platform collect any information?",
+        "answer": "No. The platform does not collect any private information. We only store information you have provided for registeration and in your profile."
+    },
+    {
+        "id": 5,
+        "headerId": "headingFive",
+        "collapseId": "collapseFive",
+        "question": "What games are supported?",
+        "answer": "At the moment, we only support 3 games, Apex Legends, Call of Duty and League of Legends. We are looking to expand to other onling communities in the future."
+    },
+    {
+        "id": 6,
+        "headerId": "headingSix",
+        "collapseId": "collapseSix",
+        "question": "Does the platform support 3rd party integration?",
+        "answer": "No. The platform is independent and does not have any support for 3rd party integration."
+    },
+    {
+        "id": 7,
+        "headerId": "headingSeven",
+        "collapseId": "collapseSeven",
+        "question": "How does a room session gets terminated/deleted?",
+        "answer": "When the host leaves the room, the session is deleted and all users will be automatically removed."
+    },
+    {
+        "id": 8,
+        "headerId": "headingEight",
+        "collapseId": "collapseEight",
+        "question": "How do we join the host in their in-game session?",
+        "answer": "Upon entering the room session, you will be supplied with joining information from the host."
+    }
+]

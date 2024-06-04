@@ -1,0 +1,68 @@
+.flexbox-container {
+    display: flex;
+    justify-content: flex-start;
+    align-items: center;
+    /* background-color: red; */
+}
+
+.flexbox-item {
+    min-height: 10px;
+    margin: 10px;
+    border: 2px solid rgb(15, 152, 237);
+    background-color: white;
+}
+
+.flexbox-item-username {
+    min-width: 50%;
+}
+.flexbox-item-button {
+    min-width: 20%;
+    margin: 10px;
+}
+
+.test {
+    margin: 20px;
+    background-color: red;
+    color: purple;
+}
+
+.rowButton {
+    margin: 20px;
+    display: flex;
+}
+
+.colStyle {
+    background-color: blue;
+}
+
+.colStyle2 {
+    background-color: pink;
+    justify-content: center;
+    align-items: center;
+    height: 100%;
+}
+
+.containerStyle {
+    background: yellow;
+}
+
+.containerInternal {
+    background-color: pink;
+}
+
+.center {
+    background-color: pink;
+    display: flex !important;
+    justify-content: center;
+    align-items: center;
+    height: 100%;
+    margin: 0;
+
+}
+
+.divCenter {
+    background-color: pink;
+    display: flex !important; 
+    justify-content: center; /* Centered Horizontally */
+    align-items: center; /* Centered Vertically */
+}

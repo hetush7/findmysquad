@@ -1,0 +1,17 @@
+[
+    {
+        "id": 1,
+        "redirect": "/forum/apex",
+        "game": "Apex Legends"
+    },
+    {
+        "id": 2,
+        "redirect": "/forum/LoL",
+        "game": "League of Legends"
+    },
+    {
+        "id": 3,
+        "redirect": "/forum/cod",
+        "game": "Call of Duty"
+    }
+]

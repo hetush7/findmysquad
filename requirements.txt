@@ -1,0 +1,8 @@
+Django>=3.2
+psycopg2-binary>=2.8
+djangorestframework
+djangorestframework-simplejwt
+django-cors-headers
+gunicorn
+coverage==3.6
+pytest

@@ -1,0 +1,65 @@
+[
+    {
+        "id": 1,
+        "hostID": 1,
+        "hostUsername": "Ken",
+        "gameID": 1,
+        "gameImagePath": "../assets/img/uriel-soberanes.jpg",
+        "sessionName": "Chill session",
+        "sessionDescription": "Anyone can join regardless of rank. Just to chill and hangout",
+        "joinDescription": "Add me in game with game account number: 12345",
+        "full": false,
+        "maxPlayers": 4,
+        "players": [
+            {
+                "userID": 1,
+                "username": "Ken"
+            }
+        ]
+    },
+    {
+        "id": 2,
+        "hostID": 2,
+        "hostUsername": "Aryan",
+        "gameID": 2,
+        "gameImagePath": "../assets/img/login-image.jpg",
+        "sessionName": "Anyone can join",
+        "sessionDescription": "Welcoming anyone to play",
+        "joinDescription": "Join my private room in game. Room ID: 15 and Password: 12345",
+        "full": false,
+        "maxPlayers": 4,
+        "players": [
+            {
+                "userID": 2,
+                "username": "Aryan"
+            },
+            {
+                "userID" : 3,
+                "username": "Corey"
+            },
+            {
+                "userID" : 4,
+                "username": "Hetush"
+            }
+        ]
+    },
+    {
+        "id": 3,
+        "hostID": 6,
+        "hostUsername": "Dummy",
+        "gameID": 2,
+        "gameImagePath": "../assets/img/login-image.jpg",
+        "sessionName": "Anyone can join",
+        "sessionDescription": "Welcoming anyone to play",
+        "joinDescription": "Join me in game, lobby dummy241",
+        "full": true,
+        "maxPlayers": 1,
+        "players": [
+            {
+                "userID": 7,
+                "username": "Dummy2"
+            }
+        ]
+    }
+    
+]

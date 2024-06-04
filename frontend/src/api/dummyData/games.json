@@ -1,0 +1,23 @@
+[
+    {
+        "id": 1,
+        "gameShortName": "game1",
+        "gameName": "Game 1 Name",
+        "gameDescription": "Game 1 Descriptions",
+        "imagePath": "../assets/img/uriel-soberanes.jpg"
+    },
+    {
+        "id": 2,
+        "gameShortName": "game2",
+        "gameName": "Game 2 Name",
+        "gameDescription": "Game 2 Descriptions",
+        "imagePath": "../assets/img/login-image.jpg"
+    },
+    {
+        "id": 3,
+        "gameShortName": "game3",
+        "gameName": "Game 3 Name",
+        "gameDescription": "Game 3 Descriptions",
+        "imagePath": "../assets/img/uriel-soberanes.jpg"
+    }
+]

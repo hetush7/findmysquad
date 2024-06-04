@@ -1,0 +1,20 @@
+[
+    {
+        "id": 1,
+        "hostID": 1,
+        "hostUsername": "Ken",
+        "gameID": 1,
+        "gameImagePath": "../assets/img/uriel-soberanes.jpg",
+        "sessionName": "Chill session",
+        "sessionDescription": "Anyone can join regardless of rank. Just to chill and hangout",
+        "joinDescription": "Add me in game with game account number: 12345",
+        "full": false,
+        "maxPlayers": 4,
+        "players": [
+            {
+                "userID": 1,
+                "username": "Ken"
+            }
+        ]
+    }
+]
