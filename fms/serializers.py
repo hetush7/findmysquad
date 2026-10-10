@@ -262,3 +262,10 @@ def first_error(errors):
 	field, messages = next(iter(errors.items()))
 	message = messages[0] if isinstance(messages, list) else messages
 	return str(message) if field == 'non_field_errors' else field + ': ' + str(message)
+
+class NotificationSerializer(serializers.ModelSerializer):
+	createdAt = serializers.DateTimeField(source='created_at', read_only=True)
+
+	class Meta:
+		model  = Notification
+		fields = ('id', 'kind', 'text', 'link', 'read', 'createdAt')

@@ -443,6 +443,34 @@ export class APIOnline {
     }
 
     /**
+     * A function to get the current user's notifications
+     * @returns - { unread, items }, or null on error
+     */
+    async getNotifications() {
+        const { ok, data } = await request('/notifications', { redirectOn401: false });
+        return ok ? data : null;
+    }
+
+    /**
+     * A function to mark notifications as read
+     * @param which - { ids: [...] } or { all: true }
+     * @returns - { unread, items } after the change, or null on error
+     */
+    async markNotificationsRead(which) {
+        const { ok, data } = await request('/notifications', { method: 'POST', body: which });
+        return ok ? data : null;
+    }
+
+    /**
+     * A function to invite a friend to a room
+     * @returns null on success, otherwise an error message
+     */
+    async inviteToSession(sessionID, username) {
+        const { ok, data } = await request(`/session/${sessionID}/invite`, { method: 'POST', body: { username } });
+        return ok ? null : errorMessage(data, 'Could not send the invite.');
+    }
+
+    /**
      * A function to get room chat messages
      * @param sessionID - The session whose chat to read
      * @param afterID - Only return messages newer than this message id (omit for the latest messages)

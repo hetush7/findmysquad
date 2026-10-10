@@ -19,6 +19,8 @@ urlpatterns = [
     path('profile-image', ProfileImageView.as_view()),
     path('gamer-tags', GamerTagsView.as_view()),
     path('my-ranks', MyRanksView.as_view()),
+    path('session/<int:session_id>/invite', SessionInviteView.as_view()),
+    path('notifications', NotificationsView.as_view()),
     path('session-chat/<int:session_id>', SessionChatView.as_view()),
     path('session-chat/<int:session_id>/report', ReportChatMessageView.as_view()),
     path('update-password', UpdatePasswordView.as_view()),

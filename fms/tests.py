@@ -789,3 +789,83 @@ class RoomOptionsTest(TestCase):
         for extra in ({'platform': 'n64'}, {'region': 'mars'}, {'voice': 'loud'}):
             self.assertEqual(self.create(**extra).status_code, 400, extra)
         self.assertFalse(GameSession.objects.exists())
+
+
+#Testing notifications for friend requests and room invites
+class NotificationTest(TestCase):
+
+    def setUp(self):
+        self.client = APIClient()
+        self.alice = User.objects.create_user(username='alice', password='1X<ISRUkw+tuK')
+        self.bob = User.objects.create_user(username='bob', password='1X<ISRUkw+tuK')
+        self.carol = User.objects.create_user(username='carol', password='1X<ISRUkw+tuK')
+        game = Game.objects.create(game_short_name="Apex", game_name="Apex Legends", description="d", image_path="i")
+        self.session = GameSession.objects.create(created_by=self.alice, game=game, max_players=3, session_name="Night grind", description="d", instructions="i")
+
+    def login(self, user):
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {RefreshToken.for_user(user).access_token}')
+
+    def notifications(self, user):
+        self.login(user)
+        return self.client.get('/api/notifications').data
+
+    def test_friend_request_and_accept_notify(self):
+        self.login(self.alice)
+        self.client.post('/api/friend-requests', {'rec_username': 'bob'}, format='json')
+        data = self.notifications(self.bob)
+        self.assertEqual(data['unread'], 1)
+        self.assertEqual(data['items'][0]['text'], 'alice sent you a friend request.')
+
+        self.client.put('/api/friend-requests', {'friend_username': 'alice', 'action': 0}, format='json')
+        self.assertEqual(self.notifications(self.alice)['items'][0]['text'], 'bob accepted your friend request.')
+
+    def test_invite_friend_to_room(self):
+        Friends.objects.create(user=self.alice, friend=self.bob)
+        self.login(self.alice)
+        resp = self.client.post(f'/api/session/{self.session.id}/invite', {'username': 'bob'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        item = self.notifications(self.bob)['items'][0]
+        self.assertEqual(item['kind'], 'room_invite')
+        self.assertEqual(item['link'], f'/room-page?id={self.session.id}')
+        self.assertIn('Night grind', item['text'])
+
+    def test_repeat_invite_is_not_duplicated_until_read(self):
+        Friends.objects.create(user=self.alice, friend=self.bob)
+        self.login(self.alice)
+        for _ in range(3):
+            self.client.post(f'/api/session/{self.session.id}/invite', {'username': 'bob'}, format='json')
+        self.assertEqual(self.notifications(self.bob)['unread'], 1)
+
+    def test_invite_rules(self):
+        self.login(self.alice)
+        # not a friend
+        self.assertEqual(self.client.post(f'/api/session/{self.session.id}/invite', {'username': 'carol'}, format='json').status_code, 400)
+        # unknown user / room
+        self.assertEqual(self.client.post(f'/api/session/{self.session.id}/invite', {'username': 'ghost'}, format='json').status_code, 404)
+        self.assertEqual(self.client.post('/api/session/9999/invite', {'username': 'bob'}, format='json').status_code, 404)
+        # already in the room
+        Friends.objects.create(user=self.alice, friend=self.bob)
+        self.session.players.add(self.bob)
+        self.assertEqual(self.client.post(f'/api/session/{self.session.id}/invite', {'username': 'bob'}, format='json').status_code, 400)
+        # outsiders can't invite
+        Friends.objects.create(user=self.carol, friend=self.bob)
+        self.login(self.carol)
+        self.assertEqual(self.client.post(f'/api/session/{self.session.id}/invite', {'username': 'bob'}, format='json').status_code, 403)
+
+    def test_mark_read(self):
+        for i in range(3):
+            Notification.objects.create(user=self.bob, kind='friend_request', text=str(i))
+        ids = [n['id'] for n in self.notifications(self.bob)['items']]
+        resp = self.client.post('/api/notifications', {'ids': ids[:1]}, format='json')
+        self.assertEqual(resp.data['unread'], 2)
+        resp = self.client.post('/api/notifications', {'all': True}, format='json')
+        self.assertEqual(resp.data['unread'], 0)
+        self.assertEqual(self.client.post('/api/notifications', {'ids': 'x'}, format='json').status_code, 400)
+
+    def test_only_own_notifications(self):
+        Notification.objects.create(user=self.bob, kind='friend_request', text='for bob')
+        self.assertEqual(self.notifications(self.alice)['items'], [])
+        # marking someone else's notification does nothing
+        bob_id = Notification.objects.get(user=self.bob).id
+        self.client.post('/api/notifications', {'ids': [bob_id]}, format='json')
+        self.assertFalse(Notification.objects.get(id=bob_id).read)

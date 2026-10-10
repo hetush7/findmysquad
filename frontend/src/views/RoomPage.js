@@ -21,6 +21,7 @@ import React, { useState } from "react";
 // reactstrap components
 import {
   Alert,
+  Input,
   Badge,
   Button,
   Card,
@@ -97,6 +98,8 @@ function RoomPage() {
   const [notice, setNotice] = useState(null); // { color, text }
   const [busy, setBusy] = useState(false);
   const [myRanks, setMyRanks] = useState({}); // game id -> rank
+  const [friends, setFriends] = useState([]); // usernames
+  const [inviteFriend, setInviteFriend] = useState("");
 
   const hasLoadedRef = React.useRef(false);
 
@@ -130,6 +133,7 @@ function RoomPage() {
   React.useEffect(() => {
     if (currentUser) {
       api.getMyRanks().then(ranks => setMyRanks(ranks));
+      api.getFriends().then(list => setFriends(list.map(friend => friend.username)));
     }
     // eslint-disable-next-line
   }, []);
@@ -218,6 +222,21 @@ function RoomPage() {
       setNotice({ color: "info", text: "Room kept open for another hour." });
     } else {
       setNotice({ color: "danger", text: "Couldn't extend the room." });
+    }
+  }
+
+  // friends who aren't already in this room
+  const invitableFriends = friends.filter(name =>
+    name !== session.hostUsername && !session.players.some(player => player.username === name)
+  );
+
+  async function invite() {
+    const error = await api.inviteToSession(session.id, inviteFriend);
+    if (error === null) {
+      setNotice({ color: "success", text: `Invite sent to ${inviteFriend}.` });
+      setInviteFriend("");
+    } else {
+      setNotice({ color: "danger", text: error });
     }
   }
 
@@ -378,6 +397,22 @@ function RoomPage() {
                           </div>
                           <p>{session.joinDescription}</p>
                         </div>
+                        {invitableFriends.length > 0 && (
+                          <div className="room-invite">
+                            <Input
+                              type="select"
+                              aria-label="Friend to invite"
+                              value={inviteFriend}
+                              onChange={e => setInviteFriend(e.target.value)}
+                            >
+                              <option value="">Invite a friend…</option>
+                              {invitableFriends.map(name => <option key={name} value={name}>{name}</option>)}
+                            </Input>
+                            <Button className="btn-round" color="info" disabled={!inviteFriend} onClick={invite}>
+                              Invite
+                            </Button>
+                          </div>
+                        )}
                         <Button block className="btn-round" color="info" outline onClick={() => copy(inviteLink, "Invite link")}>
                           Copy invite link
                         </Button>

@@ -151,3 +151,21 @@ class PlayerRank(models.Model):
 
     def __str__(self):
         return str(self.user) + ": " + self.rank + " in " + str(self.game)
+
+class Notification(models.Model):
+    FRIEND_REQUEST, FRIEND_ACCEPTED, ROOM_INVITE = 'friend_request', 'friend_accepted', 'room_invite'
+    KIND_CHOICES = [(FRIEND_REQUEST, 'Friend request'), (FRIEND_ACCEPTED, 'Friend request accepted'), (ROOM_INVITE, 'Room invite')]
+
+    user       = models.ForeignKey(User, on_delete=models.CASCADE, related_name='notifications')
+    actor      = models.ForeignKey(User, on_delete=models.CASCADE, related_name='+', null=True, blank=True)
+    kind       = models.CharField(max_length=30, choices=KIND_CHOICES)
+    text       = models.CharField(max_length=200)
+    link       = models.CharField(max_length=200, blank=True, default='')
+    read       = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-id']
+
+    def __str__(self):
+        return str(self.user) + ": " + self.text

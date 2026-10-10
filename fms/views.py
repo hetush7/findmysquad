@@ -225,6 +225,8 @@ class FriendRequestsView(APIView):
 			return bad_request('Already friends.')
 
 		FriendRequests.objects.create(sender=current_user, receiver=receiver_user)
+		Notification.objects.create(user=receiver_user, actor=current_user, kind=Notification.FRIEND_REQUEST,
+		                            text=current_user.username + ' sent you a friend request.', link='/profile-page')
 		return Response({}, status=status.HTTP_200_OK)
 
 	# Accept or decline a friend request
@@ -243,6 +245,8 @@ class FriendRequestsView(APIView):
 
 		if action == self.ACCEPT:
 			Friends.objects.create(user=current_user, friend=friend_user)
+			Notification.objects.create(user=friend_user, actor=current_user, kind=Notification.FRIEND_ACCEPTED,
+			                            text=current_user.username + ' accepted your friend request.', link='/profile-page')
 
 		return Response({}, status=status.HTTP_200_OK)
 
@@ -451,3 +455,49 @@ class ReportChatMessageView(APIView):
 		message.reported = True
 		message.save()
 		return Response({}, status=status.HTTP_200_OK)
+
+class SessionInviteView(APIView):
+
+	# Invite a friend to your room; they get a notification linking to it
+	def post(self, request, session_id, format=None):
+		GameSession.close_expired()
+		session = get_object_or_404(GameSession, id=session_id)
+		if not session.has_member(request.user):
+			return Response({'detail': 'Only squad members can invite.'}, status=status.HTTP_403_FORBIDDEN)
+
+		friend = get_object_or_404(User, username=request.data.get('username', ''))
+		if not are_friends(request.user, friend):
+			return bad_request('You can only invite your friends.')
+		if session.has_member(friend):
+			return bad_request(friend.username + ' is already in this room.')
+
+		link = '/room-page?id=' + str(session.id)
+		already_invited = Notification.objects.filter(user=friend, kind=Notification.ROOM_INVITE, link=link, read=False).exists()
+		if not already_invited:
+			Notification.objects.create(
+				user=friend, actor=request.user, kind=Notification.ROOM_INVITE, link=link,
+				text=request.user.username + ' invited you to ' + session.session_name + ' (' + session.game.game_name + ').',
+			)
+		return Response({}, status=status.HTTP_200_OK)
+
+class NotificationsView(APIView):
+	LIMIT = 30
+
+	# Latest notifications and how many are unread
+	def get(self, request, format=None):
+		notifications = request.user.notifications.all()
+		return Response({
+			'unread': notifications.filter(read=False).count(),
+			'items': NotificationSerializer(notifications[:self.LIMIT], many=True).data,
+		}, status=status.HTTP_200_OK)
+
+	# Mark notifications as read: {"ids": [1, 2]} or {"all": true}
+	def post(self, request, format=None):
+		notifications = request.user.notifications.filter(read=False)
+		if request.data.get('all') is not True:
+			ids = request.data.get('ids')
+			if not isinstance(ids, list) or not all(isinstance(i, int) for i in ids):
+				return bad_request('Send {"ids": [...]} or {"all": true}.')
+			notifications = notifications.filter(id__in=ids)
+		notifications.update(read=True)
+		return self.get(request)

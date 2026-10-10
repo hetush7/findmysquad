@@ -317,6 +317,16 @@
   margin: 0;
 }
 
+.room-invite {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.room-invite .btn {
+  margin: 0;
+}
+
 @media (hover: none) {
   /* no hover on touch screens, so always show the report link */
   .room-chat-report {

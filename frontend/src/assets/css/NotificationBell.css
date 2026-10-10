@@ -1,0 +1,67 @@
+.notification-bell .nav-link {
+  position: relative;
+}
+
+.notification-bell .nc-icon {
+  font-size: 1.2em;
+}
+
+.notification-count {
+  position: absolute;
+  top: 2px;
+  right: 0;
+  min-width: 18px;
+  padding: 1px 5px;
+  border-radius: 9px;
+  background: #f5593d;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+
+.notification-menu {
+  width: 320px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.notification-menu-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  font-weight: 700;
+  color: #333333;
+}
+
+.notification-mark-all {
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 0.85em;
+  color: #51bcda;
+  cursor: pointer;
+}
+
+.notification-menu .dropdown-item {
+  white-space: normal;
+  line-height: 1.35;
+}
+
+.notification-menu .dropdown-item small {
+  display: block;
+  margin-top: 2px;
+  color: #9a9a9a;
+}
+
+.notification-unread {
+  background: #f0fbfb;
+  font-weight: 600;
+}
+
+.notification-empty {
+  margin: 8px 16px 12px;
+  color: #9a9a9a;
+}

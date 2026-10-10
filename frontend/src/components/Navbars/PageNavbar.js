@@ -18,6 +18,7 @@
 */
 import React from "react";
 import API from "api/API";
+import NotificationBell from "components/NotificationBell";
 
 import { Link } from "react-router-dom";
 // nodejs library that concatenates strings
@@ -157,6 +158,7 @@ function PageNavbar() {
                 Forums
               </NavLink>
             </NavItem>
+            {hrefLink === "/profile-page" && <NotificationBell />}
             <NavItem>
               <Button
                 className="btn-round"
