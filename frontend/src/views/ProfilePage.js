@@ -71,34 +71,24 @@ function ProfilePage() {
   const current_user = localStorage.getItem('current_user') // current user
 
   function fetchFriendRequests() {
-    api.getFriendRequests().then(data => {
-      setRequestData(data, () => {
-        console.log(RequestData);
-      })
-    })
+    api.getFriendRequests().then(data => setRequestData(data))
   }
 
   function fetchFriends() {
-    api.getFriends().then(data => {
-      setFriendList(data, () => {
-        console.log(friendList)
-      })
-    })
+    api.getFriends().then(data => setFriendList(data))
   }
 
   function fetchBio() {
       api.getUserBio().then(data => {
-        setBio(data.bio, () => {
-          console.log(bio)
-        })
+        if (data) {
+          setBio(data.bio)
+        }
       })
   }
 
   function fetchImage() {
     api.getUserImage().then(data => {
-      if (data.image_url === "IMAGE_URL") {
-        console.log('placeholder')
-      } else {
+      if (data && data.image_url !== "IMAGE_URL") {
         setProfilePic(data.image_url)
       }
     })

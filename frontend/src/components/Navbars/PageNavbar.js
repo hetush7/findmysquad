@@ -48,20 +48,29 @@ function PageNavbar() {
     document.documentElement.classList.toggle("nav-open");
   };
 
+  // check who is logged in once per page load
   React.useEffect(() => {
-
-    async function updateIcon(){
+    async function updateIcon() {
+      if (!localStorage.getItem('access_token')) {
+        localStorage.removeItem('current_user');
+        setLink("/login-page");
+        return;
+      }
       let result = await api.currentUserCheck();
-      localStorage.setItem('current_user', result)
-      if (!result){
-        setLink("/login-page")
-      } else{
-        setLink("/profile-page")
+      if (!result) {
+        localStorage.removeItem('current_user');
+        setLink("/login-page");
+      } else {
+        localStorage.setItem('current_user', result);
+        setLink("/profile-page");
       }
     }
 
     updateIcon();
+    // eslint-disable-next-line
+  }, []);
 
+  React.useEffect(() => {
     const updateNavbarColor = () => {
       if (
         document.documentElement.scrollTop > 299 ||
@@ -81,7 +90,7 @@ function PageNavbar() {
     return function cleanup() {
       window.removeEventListener("scroll", updateNavbarColor);
     };
-  });
+  }, []);
 
 
   return (
