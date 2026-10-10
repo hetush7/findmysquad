@@ -59,6 +59,7 @@ function ProfilePage() {
   const [RequestData, setRequestData] = useState({'username': 'dummy'}); // Friend request list
   const [bio, setBio] = useState(""); // Bio
   const [count, setCount] = useState(300); // Bio limit
+  const [currentPassword, setCurrentPassword] = useState(""); // Current password input
   const [newPassword1, setNewPassword1] = useState(""); // Password Input
   const [newPassword2, setNewPassword2] = useState(""); // Confirmation password input
   const [imageURL, setImageURL] = useState(placeholder); // preview image URL
@@ -185,12 +186,11 @@ function ProfilePage() {
 
     document.getElementById("updatePasswordFeedback").hidden = false;
     if (newPassword1 === newPassword2) {
-      console.log(newPassword1)
-      api.updatePassword(newPassword1).then(data => {
-        if (data) {
+      api.updatePassword(currentPassword, newPassword1).then(error => {
+        if (error === null) {
           document.getElementById("updatePasswordFeedback").innerHTML = "Password Updated!";
         } else {
-          document.getElementById("updatePasswordFeedback").innerHTML = "Error";
+          document.getElementById("updatePasswordFeedback").innerText = error;
         }
       })
     } else {
@@ -529,6 +529,13 @@ function ProfilePage() {
               <Row>
                 <Col className="ml-auto mr-auto text-center" md="4">
                   <Form>
+                    <br />
+                    <Input 
+                      placeholder="Current Password" 
+                      type="password" 
+                      name="currentPassword"
+                      onChange={e => setCurrentPassword(e.target.value)}
+                    />
                     <br />
                     <Input 
                       placeholder="New Password" 

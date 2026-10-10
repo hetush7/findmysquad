@@ -311,6 +311,7 @@ export class APIOnline {
                     if (responseCode !== 201) {
                         if (data.username) { alert(data.username); }
                         if (data.email) { alert(data.email); }
+                        if (data.password) { alert(data.password.join('\n')); }
                     } else if (responseCode === 401) {
                         alert('YOU ARE LOGGED OUT')
                         window.location.replace('http://localhost:3000/login-page')
@@ -751,7 +752,11 @@ export class APIOnline {
         });
     }
 
-    updatePassword(updatePassword) {
+    /**
+     * Change the logged-in user's password
+     * @returns null on success, otherwise an error message
+     */
+    updatePassword(oldPassword, newPassword) {
         const requestOptions = {
             method: 'post',
             headers: { 
@@ -759,7 +764,7 @@ export class APIOnline {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
             },
-            body: JSON.stringify({ new_password: updatePassword })
+            body: JSON.stringify({ old_password: oldPassword, new_password: newPassword })
         };
 
         return new Promise((resolve) => {
@@ -767,14 +772,15 @@ export class APIOnline {
             fetch('http://localhost:8000/api/update-password', requestOptions)
                 .then(function(response) {
                     responseCode = response.status
+                    return response.json()
                 })
-                .then(function(){
-                    if (responseCode === 200) { resolve(true) }
+                .then(function(data){
+                    if (responseCode === 200) { resolve(null) }
                     else if (responseCode === 401) {
                         alert('YOU ARE LOGGED OUT')
                         window.location.replace('http://localhost:3000/login-page')
                     }
-                    else { resolve(false) }
+                    else { resolve(Object.values(data).flat().join(' ') || 'Error') }
                 })
         });
     }

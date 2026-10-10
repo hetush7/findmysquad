@@ -1,5 +1,6 @@
 from django.shortcuts 			import render
-from django.contrib.auth 		import authenticate, login
+from django.contrib.auth 		import authenticate, login, password_validation
+from django.core.exceptions 	import ValidationError
 
 from rest_framework.views 		import APIView
 from rest_framework.response 	import Response 
@@ -31,10 +32,7 @@ class RegisterUserView(APIView):
 		serializer = self.serializer_class(data=request.data)
 
 		if serializer.is_valid():
-			username = serializer.data.get('username')
-			email 	 = serializer.data.get('email')
-			password = serializer.data.get('password')
-			user = User.objects.create_user(username=username, email=email, password=password)
+			serializer.save()
 			return Response(serializer.data, status=status.HTTP_201_CREATED)
 		return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -124,9 +122,11 @@ class SessionView(APIView):
 				return Response({}, status=status.HTTP_200_OK)
 			
 			elif action == 2:
-				# Kick From Session
+				# Kick From Session (host only)
+				if current_session.created_by != current_user:
+					return Response({}, status=status.HTTP_403_FORBIDDEN)
+
 				user_to_kick = User.objects.get(id=request.data['player_id'])
-				print(user_to_kick)
 				current_session.players.remove(user_to_kick)
 				current_session.save()
 				return Response({}, status=status.HTTP_200_OK)
@@ -207,7 +207,6 @@ class FriendRequestsView(APIView):
 					data_to_append = {'username': req.sender.username}
 					response_list.append(data_to_append)
 
-			print(response_list)
 			return Response(response_list, status=status.HTTP_200_OK)
 		
 		else:
@@ -293,7 +292,6 @@ class FriendsView(APIView):
 					data_to_append = {'username': f.user.username}
 					response_list.append(data_to_append)
 
-			print(response_list)
 			return Response(response_list, status=status.HTTP_200_OK)
 		
 		else:
@@ -356,7 +354,6 @@ class ProfileBioView(APIView):
 
 			if bio_check:
 				profile_bio 	= ProfileBio.objects.get(user=current_user)
-				print('REC: ' + request.data['bio'])
 				profile_bio.bio = request.data['bio'] 
 				profile_bio.save()
 			
@@ -398,7 +395,6 @@ class ProfileImageView(APIView):
 
 			if bio_check:
 				profile_bio 	= ProfileBio.objects.get(user=current_user)
-				print('REC: ' + request.data['image_url'])
 				profile_bio.img_url = request.data['image_url']
 				profile_bio.save()
 			
@@ -414,11 +410,17 @@ class UpdatePasswordView(APIView):
 		current_user = request.user
 
 		if current_user:
-			user_to_update = User.objects.get(username=current_user.username) 
-			new_password = request.data['new_password']
-			user_to_update.set_password(new_password)
-			user_to_update.save()
-			print(user_to_update.password)
+			if not current_user.check_password(request.data.get('old_password', '')):
+				return Response({'old_password': ['Current password is incorrect.']}, status=status.HTTP_400_BAD_REQUEST)
+
+			new_password = request.data.get('new_password', '')
+			try:
+				password_validation.validate_password(new_password, user=current_user)
+			except ValidationError as e:
+				return Response({'new_password': e.messages}, status=status.HTTP_400_BAD_REQUEST)
+
+			current_user.set_password(new_password)
+			current_user.save()
 			return Response({}, status=status.HTTP_200_OK)
 
 		else:

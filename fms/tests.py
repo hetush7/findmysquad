@@ -164,3 +164,67 @@ class ProfileBioTest(TestCase):
 
 
 
+
+
+#Testing security rules on registration, password change and kicking players
+class SecurityTest(TestCase):
+
+    def setUp(self):
+        self.client = APIClient()
+        self.password = '1X<ISRUkw+tuK'
+        self.host = User.objects.create_user(username='host', password=self.password)
+        self.player = User.objects.create_user(username='player', password=self.password)
+        self.other = User.objects.create_user(username='other', password=self.password)
+        game = Game.objects.create(game_short_name="Apex", game_name="Apex Legends", description="desc", image_path="img.jpg")
+        self.session = GameSession.objects.create(created_by=self.host, game=game, max_players=3, session_name="s", description="d", instructions="i")
+        self.session.players.add(self.player)
+
+    def login(self, user):
+        token = RefreshToken.for_user(user).access_token
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+
+    #Register response must not contain the password, and the stored password must be hashed
+    def test_register_does_not_return_password(self):
+        resp = self.client.post('/api/register-user', {'username': 'new', 'email': 'new@example.com', 'password': self.password}, format='json')
+        self.assertEqual(resp.status_code, 201)
+        self.assertNotIn('password', resp.data)
+        self.assertTrue(User.objects.get(username='new').check_password(self.password))
+
+    #Register rejects weak passwords
+    def test_register_rejects_weak_password(self):
+        resp = self.client.post('/api/register-user', {'username': 'new', 'email': 'new@example.com', 'password': '1234'}, format='json')
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('password', resp.data)
+
+    #Only the host can kick players
+    def test_non_host_cannot_kick(self):
+        self.login(self.other)
+        resp = self.client.put('/api/create-session', {'action': 2, 'session_id': self.session.id, 'player_id': self.player.id}, format='json')
+        self.assertEqual(resp.status_code, 403)
+        self.assertIn(self.player, self.session.players.all())
+
+    def test_host_can_kick(self):
+        self.login(self.host)
+        resp = self.client.put('/api/create-session', {'action': 2, 'session_id': self.session.id, 'player_id': self.player.id}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotIn(self.player, self.session.players.all())
+
+    #Password change requires the current password
+    def test_update_password_requires_old_password(self):
+        self.login(self.player)
+        resp = self.client.post('/api/update-password', {'old_password': 'wrong', 'new_password': 'N3w-Strong-Pass!'}, format='json')
+        self.assertEqual(resp.status_code, 400)
+        self.player.refresh_from_db()
+        self.assertTrue(self.player.check_password(self.password))
+
+    def test_update_password_rejects_weak_password(self):
+        self.login(self.player)
+        resp = self.client.post('/api/update-password', {'old_password': self.password, 'new_password': '1234'}, format='json')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_update_password_success(self):
+        self.login(self.player)
+        resp = self.client.post('/api/update-password', {'old_password': self.password, 'new_password': 'N3w-Strong-Pass!'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.player.refresh_from_db()
+        self.assertTrue(self.player.check_password('N3w-Strong-Pass!'))

@@ -1,4 +1,5 @@
-from rest_framework import serializers 
+from django.contrib.auth import password_validation
+from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from .models import *
 
@@ -16,6 +17,14 @@ class UserSerializer(serializers.ModelSerializer):
 	class Meta:
 		model  = User
 		fields = ['id', 'username', 'email', 'password']
+		extra_kwargs = {'password': {'write_only': True}}
+
+	def validate_password(self, value):
+		password_validation.validate_password(value)
+		return value
+
+	def create(self, validated_data):
+		return User.objects.create_user(**validated_data)
 
 class PlayerSerializer(serializers.ModelSerializer):
 	userID   = serializers.SerializerMethodField('get_id')
