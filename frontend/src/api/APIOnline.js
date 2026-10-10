@@ -178,20 +178,24 @@ export class APIOnline {
 
     /**
      * A function to create a new session
-     * @param param0 - An array of all form inputs [formGame, formMaxPlayers, formName, formDescription, formHiddenDescription, formMinRank, formMaxRank]
+     * @param room - { game, maxPlayers, name, description, instructions, minRank, maxRank, durationHours, platform, region, voice }
      * @returns - { id } of the newly created session, or { error } with a message
      */
-    async createSession([formGame, formMaxPlayers, formName, formDescription, formHiddenDescription, formMinRank, formMaxRank]) {
+    async createSession(room) {
         const { status, data } = await request('/create-session', {
             method: 'POST',
             body: {
-                game_id: formGame,
-                max_players: formMaxPlayers,
-                session_name: formName,
-                description: formDescription,
-                instructions: formHiddenDescription,
-                min_rank: formMinRank || '',
-                max_rank: formMaxRank || '',
+                game_id: room.game,
+                max_players: room.maxPlayers,
+                session_name: room.name,
+                description: room.description,
+                instructions: room.instructions,
+                min_rank: room.minRank || '',
+                max_rank: room.maxRank || '',
+                duration_hours: room.durationHours || 4,
+                platform: room.platform || 'any',
+                region: room.region || 'any',
+                voice: room.voice || 'any',
             },
         });
         return status === 201 ? { id: data.id } : { error: errorMessage(data, 'Error creating session') };
@@ -213,6 +217,15 @@ export class APIOnline {
     async leaveSession(sessionID) {
         const { ok } = await request('/create-session', { method: 'PUT', body: { session_id: sessionID, action: 1 } });
         return ok;
+    }
+
+    /**
+     * A function for the host to keep their room open for another hour
+     * @returns - The new closing time, or null if it couldn't be extended
+     */
+    async extendSession(sessionID) {
+        const { ok, data } = await request('/create-session', { method: 'PUT', body: { session_id: sessionID, action: 3 } });
+        return ok ? data.expiresAt : null;
     }
 
     /**
@@ -407,6 +420,25 @@ export class APIOnline {
      */
     async updateGamerTags(tags) {
         const { ok, data } = await request('/gamer-tags', { method: 'PUT', body: tags });
+        return ok ? null : errorMessage(data, 'Error');
+    }
+
+    /**
+     * A function to get the current user's saved ranks
+     * @returns - An object of game id -> rank (empty if none, or on error)
+     */
+    async getMyRanks() {
+        const { ok, data } = await request('/my-ranks', { redirectOn401: false });
+        return ok ? data : {};
+    }
+
+    /**
+     * A function to save the current user's ranks
+     * @param ranks - An object of game id -> rank ('' clears it)
+     * @returns null on success, otherwise an error message
+     */
+    async updateMyRanks(ranks) {
+        const { ok, data } = await request('/my-ranks', { method: 'PUT', body: ranks });
         return ok ? null : errorMessage(data, 'Error');
     }
 

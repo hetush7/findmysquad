@@ -74,13 +74,14 @@ class SessionSerializer(serializers.ModelSerializer):
 	maxPlayers         = serializers.SerializerMethodField('get_max_players')
 	players            = serializers.SerializerMethodField('get_players')
 	gameShortName      = serializers.SerializerMethodField('get_game_short_name')
+	expiresAt          = serializers.DateTimeField(source='expires_at', read_only=True)
 	minRank            = serializers.SerializerMethodField('get_min_rank')
 	maxRank            = serializers.SerializerMethodField('get_max_rank')
 
 	class Meta:
 		model  = GameSession
 		exclude = ('max_players', 'session_name', 'description', 'instructions', 
-		'created_by', 'game', 'min_rank', 'max_rank')
+		'created_by', 'game', 'min_rank', 'max_rank', 'expires_at')
 
 	def get_id(self, obj):
 		return obj.id
@@ -130,6 +131,14 @@ class SessionSerializer(serializers.ModelSerializer):
 	def to_representation(self, obj):
 		# Join instructions and gamer tags are only for squad members (context['private'])
 		data = super().to_representation(obj)
+
+		# each member's saved rank for this room's game (public, like the rank range)
+		ranks = dict(PlayerRank.objects.filter(game=obj.game, user_id__in=[obj.created_by_id] + [p['userID'] for p in data['players']])
+		             .values_list('user_id', 'rank'))
+		data['hostRank'] = ranks.get(obj.created_by_id)
+		for player in data['players']:
+			player['rank'] = ranks.get(player['userID'])
+
 		if not self.context.get('private'):
 			data.pop('joinDescription')
 			data.pop('hostGamerTags')
@@ -227,6 +236,7 @@ class ChatMessageSerializer(serializers.ModelSerializer):
 		return value
 
 MAX_SQUAD_SIZE = 10  # players who can join a room, not counting the host
+ROOM_DURATION_HOURS = (1, 2, 4, 8, 12, 24)
 
 class CreateSessionSerializer(serializers.Serializer):
 	game_id      = serializers.PrimaryKeyRelatedField(queryset=Game.objects.all(), source='game')
@@ -236,6 +246,10 @@ class CreateSessionSerializer(serializers.Serializer):
 	instructions = serializers.CharField(max_length=300)
 	min_rank     = serializers.CharField(max_length=50, required=False, allow_blank=True, default='')
 	max_rank     = serializers.CharField(max_length=50, required=False, allow_blank=True, default='')
+	duration_hours = serializers.ChoiceField(choices=ROOM_DURATION_HOURS, required=False, default=DEFAULT_ROOM_HOURS)
+	platform     = serializers.ChoiceField(choices=PLATFORM_CHOICES, required=False, default='any')
+	region       = serializers.ChoiceField(choices=REGION_CHOICES, required=False, default='any')
+	voice        = serializers.ChoiceField(choices=VOICE_CHOICES, required=False, default='any')
 
 	def validate(self, attrs):
 		error = attrs['game'].rank_range_error(attrs['min_rank'], attrs['max_rank'])

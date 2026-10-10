@@ -1,5 +1,19 @@
+from datetime import timedelta
+
 from django.db import models
 from django.contrib.auth.models import User
+from django.utils import timezone
+
+DEFAULT_ROOM_HOURS = 4
+MAX_ROOM_HOURS = 24
+
+PLATFORM_CHOICES = [('any', 'Any platform'), ('pc', 'PC'), ('playstation', 'PlayStation'), ('xbox', 'Xbox'), ('switch', 'Switch')]
+REGION_CHOICES = [('any', 'Any region'), ('na', 'North America'), ('sa', 'South America'), ('eu', 'Europe'),
+                  ('me', 'Middle East'), ('asia', 'Asia'), ('oce', 'Oceania')]
+VOICE_CHOICES = [('any', 'Mic optional'), ('required', 'Mic required'), ('none', 'No mic')]
+
+def default_room_expiry():
+    return timezone.now() + timedelta(hours=DEFAULT_ROOM_HOURS)
 
 class ForumPost(models.Model):
     posted_by = models.ForeignKey(User,on_delete=models.CASCADE)
@@ -49,6 +63,10 @@ class GameSession(models.Model):
     players      = models.ManyToManyField(User)
     min_rank     = models.CharField(max_length=50, blank=True, default='')
     max_rank     = models.CharField(max_length=50, blank=True, default='')
+    expires_at   = models.DateTimeField(default=default_room_expiry)
+    platform     = models.CharField(max_length=20, choices=PLATFORM_CHOICES, default='any')
+    region       = models.CharField(max_length=20, choices=REGION_CHOICES, default='any')
+    voice        = models.CharField(max_length=20, choices=VOICE_CHOICES, default='any')
 
     def __str__(self):
         return str(self.created_by) + ": " + self.session_name
@@ -57,6 +75,17 @@ class GameSession(models.Model):
         if self.players.count() < self.max_players:
             return False
         return True
+
+    @classmethod
+    def close_expired(cls):
+        # Rooms close themselves when their time runs out (their chat goes with them)
+        return cls.objects.filter(expires_at__lte=timezone.now()).delete()
+
+    def extend(self, hours=1):
+        # Keep the room open longer, but never more than MAX_ROOM_HOURS from now
+        latest = timezone.now() + timedelta(hours=MAX_ROOM_HOURS)
+        self.expires_at = min(max(self.expires_at, timezone.now()) + timedelta(hours=hours), latest)
+        self.save(update_fields=['expires_at'])
 
     def has_member(self, user):
         # The host or any player who has joined
@@ -111,3 +140,14 @@ class ChatMessage(models.Model):
         if self.reported:
             return label + " (Review Required)"
         return label
+
+class PlayerRank(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='ranks')
+    game = models.ForeignKey(Game, on_delete=models.CASCADE)
+    rank = models.CharField(max_length=50)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['user', 'game'], name='one_rank_per_game')]
+
+    def __str__(self):
+        return str(self.user) + ": " + self.rank + " in " + str(self.game)

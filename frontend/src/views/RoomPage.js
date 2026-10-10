@@ -38,7 +38,9 @@ import PageFooter from "components/Footers/PageFooter";
 import API from "api/API";
 import RoomChat from "components/RoomChat";
 import platforms from "assets/data/platforms";
-import { rankRangeLabel } from "utils/ranks";
+import { rankRangeLabel, rankAllowed } from "utils/ranks";
+import { closesInLabel } from "utils/time";
+import { roomOptionLabels } from "assets/data/roomOptions";
 import { useHistory, useLocation } from "react-router";
 
 import "assets/css/RoomPage.css";
@@ -94,6 +96,7 @@ function RoomPage() {
   const [game, setGame] = useState(null);
   const [notice, setNotice] = useState(null); // { color, text }
   const [busy, setBusy] = useState(false);
+  const [myRanks, setMyRanks] = useState({}); // game id -> rank
 
   const hasLoadedRef = React.useRef(false);
 
@@ -123,6 +126,13 @@ function RoomPage() {
       setGame(await api.getGame(data.gameID));
     }
   }, [api, refreshSession]);
+
+  React.useEffect(() => {
+    if (currentUser) {
+      api.getMyRanks().then(ranks => setMyRanks(ranks));
+    }
+    // eslint-disable-next-line
+  }, []);
 
   React.useEffect(() => {
     document.body.classList.add("room-page");
@@ -165,6 +175,8 @@ function RoomPage() {
   const playerCount = session.players.length;
   const openSlots = Math.max(session.maxPlayers - playerCount, 0);
   const inviteLink = `${window.location.origin}/room-page?id=${session.id}`;
+  const myRank = myRanks[session.gameID];
+  const rankMismatch = game && myRank && !rankAllowed(session, game.ranks || [], myRank);
 
   async function join() {
     setBusy(true);
@@ -196,6 +208,16 @@ function RoomPage() {
       refreshSession();
     } else {
       setNotice({ color: "danger", text: `Couldn't remove ${player.username}.` });
+    }
+  }
+
+  async function extend() {
+    const expiresAt = await api.extendSession(session.id);
+    if (expiresAt) {
+      setSession({ ...session, expiresAt });
+      setNotice({ color: "info", text: "Room kept open for another hour." });
+    } else {
+      setNotice({ color: "danger", text: "Couldn't extend the room." });
     }
   }
 
@@ -232,6 +254,8 @@ function RoomPage() {
                     {session.full ? "Full" : `${openSlots} slot${openSlots === 1 ? "" : "s"} open`}
                   </Badge>
                   <Badge color="info" pill>{rankRangeLabel(session)}</Badge>
+                  <Badge color="default" pill>{closesInLabel(session.expiresAt)}</Badge>
+                  {roomOptionLabels(session).map(label => <Badge key={label} color="primary" pill>{label}</Badge>)}
                   {isHost && <Badge color="warning" pill>You're the host</Badge>}
                 </div>
               </Col>
@@ -265,6 +289,7 @@ function RoomPage() {
                         <div className="room-player-info">
                           <div className="room-player-line">
                             <span className="room-player-name">{session.hostUsername}</span>
+                            {session.hostRank && <Badge color="info" pill>{session.hostRank}</Badge>}
                             <Badge color="warning" pill>Host</Badge>
                             {isHost && <Badge color="default" pill>You</Badge>}
                           </div>
@@ -277,6 +302,7 @@ function RoomPage() {
                           <div className="room-player-info">
                             <div className="room-player-line">
                               <span className="room-player-name">{player.username}</span>
+                              {player.rank && <Badge color="info" pill>{player.rank}</Badge>}
                               {player.username === currentUser && <Badge color="default" pill>You</Badge>}
                             </div>
                             <GamerTags tags={player.gamerTags} />
@@ -334,6 +360,9 @@ function RoomPage() {
                         >
                           {session.full ? "Room is full" : "Join squad"}
                         </Button>
+                        {rankMismatch && (
+                          <p className="room-hint text-warning">Your saved rank ({myRank}) is outside this room's range ({rankRangeLabel(session)}).</p>
+                        )}
                         <p className="room-hint">Join details are shared with squad members only.</p>
                       </>
                     )}
@@ -352,6 +381,11 @@ function RoomPage() {
                         <Button block className="btn-round" color="info" outline onClick={() => copy(inviteLink, "Invite link")}>
                           Copy invite link
                         </Button>
+                        {isHost && (
+                          <Button block className="btn-round" color="default" outline onClick={extend}>
+                            Keep open +1h
+                          </Button>
+                        )}
                         <Button block className="btn-round" color="danger" outline disabled={busy} onClick={leave}>
                           {isHost ? "Close room" : "Leave room"}
                         </Button>

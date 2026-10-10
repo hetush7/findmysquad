@@ -4,6 +4,8 @@ from django.urls import reverse
 from .views import * 
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.test import APIClient
+from django.utils import timezone
+from datetime import timedelta
 
 
 #Testing the game model and its requests
@@ -630,3 +632,160 @@ class TokenTest(TestCase):
 
     def test_refresh_with_garbage_token(self):
         self.assertEqual(self.client.post('/api/token/refresh', {'refresh': 'nonsense'}, format='json').status_code, 401)
+
+
+#Testing that rooms close themselves when their time runs out
+class RoomExpiryTest(TestCase):
+
+    def setUp(self):
+        self.client = APIClient()
+        self.host = User.objects.create_user(username='host', password='1X<ISRUkw+tuK')
+        self.player = User.objects.create_user(username='player', password='1X<ISRUkw+tuK')
+        self.game = Game.objects.create(game_short_name="Apex", game_name="Apex Legends", description="desc", image_path="img.jpg")
+
+    def login(self, user):
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {RefreshToken.for_user(user).access_token}')
+
+    def make_session(self, expires_in):
+        session = GameSession.objects.create(created_by=self.host, game=self.game, max_players=3, session_name="s",
+                                             description="d", instructions="i", expires_at=timezone.now() + expires_in)
+        session.players.add(self.player)
+        return session
+
+    def body(self, **extra):
+        return {'game_id': self.game.id, 'max_players': 3, 'session_name': 's', 'description': 'd', 'instructions': 'i', **extra}
+
+    def test_default_and_chosen_duration(self):
+        self.login(self.host)
+        resp = self.client.post('/api/create-session', self.body(), format='json')
+        expires = GameSession.objects.get(id=resp.data['id']).expires_at
+        self.assertAlmostEqual((expires - timezone.now()).total_seconds(), 4 * 3600, delta=60)
+
+        GameSession.objects.all().delete()
+        resp = self.client.post('/api/create-session', self.body(duration_hours=12), format='json')
+        expires = GameSession.objects.get(id=resp.data['id']).expires_at
+        self.assertAlmostEqual((expires - timezone.now()).total_seconds(), 12 * 3600, delta=60)
+
+    def test_rejects_unsupported_duration(self):
+        self.login(self.host)
+        for hours in (0, 3, 48, 'forever'):
+            self.assertEqual(self.client.post('/api/create-session', self.body(duration_hours=hours), format='json').status_code, 400)
+
+    def test_expired_rooms_disappear(self):
+        expired = self.make_session(timedelta(minutes=-1))
+        self.assertEqual(self.client.get('/api/get-sessions').data, [])
+        self.assertEqual(self.client.get(f'/api/session/{expired.id}').status_code, 404)
+        self.assertFalse(GameSession.objects.filter(id=expired.id).exists())
+
+    def test_expired_room_does_not_block_new_rooms(self):
+        self.make_session(timedelta(minutes=-1))
+        self.login(self.player)
+        self.assertEqual(self.client.post('/api/create-session', self.body(), format='json').status_code, 201)
+
+    def test_expired_room_chat_is_gone(self):
+        expired = self.make_session(timedelta(minutes=-1))
+        self.login(self.player)
+        self.assertEqual(self.client.get(f'/api/session-chat/{expired.id}').status_code, 404)
+
+    def test_host_can_extend(self):
+        session = self.make_session(timedelta(minutes=30))
+        self.login(self.host)
+        resp = self.client.put('/api/create-session', {'action': 3, 'session_id': session.id}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        session.refresh_from_db()
+        self.assertAlmostEqual((session.expires_at - timezone.now()).total_seconds(), 90 * 60, delta=60)
+
+    def test_extend_is_capped_at_24_hours(self):
+        session = self.make_session(timedelta(hours=23, minutes=30))
+        self.login(self.host)
+        self.client.put('/api/create-session', {'action': 3, 'session_id': session.id}, format='json')
+        session.refresh_from_db()
+        self.assertLessEqual(session.expires_at, timezone.now() + timedelta(hours=24))
+
+    def test_only_host_can_extend(self):
+        session = self.make_session(timedelta(minutes=30))
+        self.login(self.player)
+        self.assertEqual(self.client.put('/api/create-session', {'action': 3, 'session_id': session.id}, format='json').status_code, 403)
+
+    def test_expires_at_in_session_data(self):
+        session = self.make_session(timedelta(hours=2))
+        self.assertIn('expiresAt', self.client.get(f'/api/session/{session.id}').data)
+
+    def test_management_command(self):
+        from django.core.management import call_command
+        from io import StringIO
+        expired = self.make_session(timedelta(minutes=-5))
+        call_command('close_expired_rooms', stdout=StringIO())
+        self.assertFalse(GameSession.objects.filter(id=expired.id).exists())
+
+
+#Testing players' saved ranks per game
+class PlayerRankTest(TestCase):
+
+    def setUp(self):
+        self.client = APIClient()
+        self.host = User.objects.create_user(username='host', password='1X<ISRUkw+tuK')
+        self.player = User.objects.create_user(username='player', password='1X<ISRUkw+tuK')
+        self.apex = Game.objects.create(game_short_name="Apex", game_name="Apex Legends", description="d", image_path="i", ranks=['Bronze', 'Silver', 'Gold'])
+        self.lol = Game.objects.create(game_short_name="LoL", game_name="League of Legends", description="d", image_path="i", ranks=['Iron', 'Gold', 'Challenger'])
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {RefreshToken.for_user(self.player).access_token}')
+
+    def test_save_update_and_clear(self):
+        resp = self.client.put('/api/my-ranks', {str(self.apex.id): 'Silver', str(self.lol.id): 'Challenger'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data, {str(self.apex.id): 'Silver', str(self.lol.id): 'Challenger'})
+
+        self.client.put('/api/my-ranks', {str(self.apex.id): 'Gold'}, format='json')
+        self.client.put('/api/my-ranks', {str(self.lol.id): ''}, format='json')
+        self.assertEqual(self.client.get('/api/my-ranks').data, {str(self.apex.id): 'Gold'})
+
+    def test_rejects_invalid_ranks(self):
+        self.assertEqual(self.client.put('/api/my-ranks', {str(self.apex.id): 'Challenger'}, format='json').status_code, 400)
+        self.assertEqual(self.client.put('/api/my-ranks', {'9999': 'Gold'}, format='json').status_code, 400)
+        self.assertEqual(self.client.put('/api/my-ranks', {'abc': 'Gold'}, format='json').status_code, 400)
+        self.assertEqual(self.client.put('/api/my-ranks', ['Gold'], format='json').status_code, 400)
+        # nothing was saved by a request containing an invalid entry
+        self.client.put('/api/my-ranks', {str(self.apex.id): 'Gold', str(self.lol.id): 'Bronze'}, format='json')
+        self.assertEqual(self.client.get('/api/my-ranks').data, {})
+
+    def test_ranks_shown_in_room_for_its_game(self):
+        session = GameSession.objects.create(created_by=self.host, game=self.apex, max_players=3, session_name="s", description="d", instructions="i")
+        session.players.add(self.player)
+        PlayerRank.objects.create(user=self.host, game=self.apex, rank='Gold')
+        PlayerRank.objects.create(user=self.player, game=self.lol, rank='Iron')  # other game: not shown
+        data = self.client.get(f'/api/session/{session.id}').data
+        self.assertEqual(data['hostRank'], 'Gold')
+        self.assertIsNone(data['players'][0]['rank'])
+
+    def test_requires_login(self):
+        self.client.credentials()
+        self.assertEqual(self.client.get('/api/my-ranks').status_code, 401)
+
+
+#Testing platform, region and voice settings on rooms
+class RoomOptionsTest(TestCase):
+
+    def setUp(self):
+        self.client = APIClient()
+        self.host = User.objects.create_user(username='host', password='1X<ISRUkw+tuK')
+        self.game = Game.objects.create(game_short_name="Apex", game_name="Apex Legends", description="d", image_path="i")
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {RefreshToken.for_user(self.host).access_token}')
+
+    def create(self, **extra):
+        body = {'game_id': self.game.id, 'max_players': 3, 'session_name': 's', 'description': 'd', 'instructions': 'i', **extra}
+        return self.client.post('/api/create-session', body, format='json')
+
+    def test_defaults_to_any(self):
+        self.assertEqual(self.create().status_code, 201)
+        session = self.client.get('/api/get-sessions').data[0]
+        self.assertEqual((session['platform'], session['region'], session['voice']), ('any', 'any', 'any'))
+
+    def test_saves_options(self):
+        self.assertEqual(self.create(platform='playstation', region='oce', voice='required').status_code, 201)
+        session = self.client.get('/api/get-sessions').data[0]
+        self.assertEqual((session['platform'], session['region'], session['voice']), ('playstation', 'oce', 'required'))
+
+    def test_rejects_unknown_options(self):
+        for extra in ({'platform': 'n64'}, {'region': 'mars'}, {'voice': 'loud'}):
+            self.assertEqual(self.create(**extra).status_code, 400, extra)
+        self.assertFalse(GameSession.objects.exists())

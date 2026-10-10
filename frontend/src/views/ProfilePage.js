@@ -67,6 +67,9 @@ function ProfilePage() {
   const [imageURL, setImageURL] = useState(placeholder); // preview image URL
   const [gamerTags, setGamerTags] = useState({}); // platform -> gamer tag
   const [gamerTagsFeedback, setGamerTagsFeedback] = useState(null); // { color, text }
+  const [rankGames, setRankGames] = useState([]); // games that have ranks
+  const [myRanks, setMyRanks] = useState({}); // game id -> rank
+  const [ranksFeedback, setRanksFeedback] = useState(null); // { color, text }
   const [profilePic, setProfilePic] = useState(placeholder) // Profile Pic Image URL
   const current_user = localStorage.getItem('current_user') // current user
 
@@ -230,6 +233,19 @@ function ProfilePage() {
       history.push(from.pathname)
   }
 
+  function saveRanks(e) {
+    e.preventDefault();
+    const ranks = {};
+    rankGames.forEach(game => { ranks[game.id] = myRanks[game.id] || ""; });
+    api.updateMyRanks(ranks).then(error => {
+      if (error === null) {
+        setRanksFeedback({ color: "text-success", text: "Ranks saved!" });
+      } else {
+        setRanksFeedback({ color: "text-danger", text: error });
+      }
+    })
+  }
+
   function saveGamerTags(e) {
     e.preventDefault();
     api.updateGamerTags(gamerTags).then(error => {
@@ -250,6 +266,8 @@ function ProfilePage() {
       api.getGamerTags().then(data => {
         if (data) { setGamerTags(data) }
       })
+      api.getGames().then(games => setRankGames(games.filter(game => game.ranks && game.ranks.length > 0)))
+      api.getMyRanks().then(ranks => setMyRanks(ranks))
 
       document.body.classList.add("profile-page");
       return function cleanup() {
@@ -364,7 +382,7 @@ function ProfilePage() {
                       toggle("7");
                     }}
                   >
-                    Gamer tags
+                    Gamer tags & ranks
                   </NavLink>
                 </NavItem>
               </Nav>
@@ -653,6 +671,44 @@ function ProfilePage() {
                   </Form>
                 </Col>
               </Row>
+              {rankGames.length > 0 && (
+                <>
+                  <Row>
+                    <Col className="ml-auto mr-auto text-center" md="6">
+                      <h3 className="title">Your ranks</h3>
+                      <p>Shown next to your name in rooms, and used to find rooms that accept your rank.</p>
+                    </Col>
+                  </Row>
+                  <Row>
+                    <Col className="ml-auto mr-auto" md="5">
+                      <Form onSubmit={saveRanks}>
+                        {rankGames.map(game => (
+                          <FormGroup key={"rank-" + game.id}>
+                            <Label for={"rank-" + game.id}>{game.gameName}</Label>
+                            <Input
+                              id={"rank-" + game.id}
+                              type="select"
+                              value={myRanks[game.id] || ""}
+                              onChange={e => setMyRanks({ ...myRanks, [game.id]: e.target.value })}
+                            >
+                              <option value="">Not set</option>
+                              {game.ranks.map(rank => <option key={rank} value={rank}>{rank}</option>)}
+                            </Input>
+                          </FormGroup>
+                        ))}
+                        <div className="text-center">
+                          <Button className="btn-round" color="danger" type="submit">
+                            Save ranks
+                          </Button>
+                          {ranksFeedback && (
+                            <h6 className={ranksFeedback.color}>{ranksFeedback.text}</h6>
+                          )}
+                        </div>
+                      </Form>
+                    </Col>
+                  </Row>
+                </>
+              )}
             </TabPane>
           </TabContent>
         </Container>

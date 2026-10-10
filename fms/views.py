@@ -46,6 +46,7 @@ class GetSessionsView(APIView):
 	serializer_class = SessionSerializer
 	
 	def get(self, request, format=None):
+		GameSession.close_expired()
 		sessions = GameSession.objects.select_related(
 			'game', 'created_by__gamer_tags'
 		).prefetch_related('players__gamer_tags')
@@ -59,6 +60,7 @@ class SessionDetailView(APIView):
 
 	# Get one session; squad members also get the join instructions and gamer tags
 	def get(self, request, session_id, format=None):
+		GameSession.close_expired()
 		session = get_object_or_404(
 			GameSession.objects.select_related('game', 'created_by__gamer_tags').prefetch_related('players__gamer_tags'),
 			id=session_id
@@ -81,7 +83,11 @@ def in_any_session(user):
 	return GameSession.objects.filter(created_by=user).exists() or GameSession.objects.filter(players=user).exists()
 
 class SessionView(APIView):
-	JOIN, LEAVE, KICK = 0, 1, 2
+	JOIN, LEAVE, KICK, EXTEND = 0, 1, 2, 3
+
+	def initial(self, request, *args, **kwargs):
+		super().initial(request, *args, **kwargs)
+		GameSession.close_expired()
 
 	# Create Session
 	def post(self, request, format=None):
@@ -101,6 +107,10 @@ class SessionView(APIView):
 			instructions = serializer.validated_data['instructions'],
 			min_rank     = serializer.validated_data['min_rank'],
 			max_rank     = serializer.validated_data['max_rank'],
+			expires_at   = timezone.now() + timedelta(hours=serializer.validated_data['duration_hours']),
+			platform     = serializer.validated_data['platform'],
+			region       = serializer.validated_data['region'],
+			voice        = serializer.validated_data['voice'],
 		)
 		return Response({'id': new_session.id}, status=status.HTTP_201_CREATED)
 
@@ -140,7 +150,13 @@ class SessionView(APIView):
 			current_session.players.remove(player)
 			return Response({}, status=status.HTTP_200_OK)
 
-		return bad_request('action must be 0 (join), 1 (leave) or 2 (kick).')
+		if action == self.EXTEND:
+			if current_session.created_by != current_user:
+				return Response({}, status=status.HTTP_403_FORBIDDEN)
+			current_session.extend(hours=1)
+			return Response({'expiresAt': current_session.expires_at}, status=status.HTTP_200_OK)
+
+		return bad_request('action must be 0 (join), 1 (leave), 2 (kick) or 3 (extend).')
 
 class GameInfoView(APIView):
 	permission_classes = (permissions.AllowAny,)
@@ -254,6 +270,35 @@ class FriendsView(APIView):
 		).delete()
 		return Response({}, status=status.HTTP_200_OK)
 
+class MyRanksView(APIView):
+
+	# Get the current user's saved ranks as {game_id: rank}
+	def get(self, request, format=None):
+		ranks = PlayerRank.objects.filter(user=request.user)
+		return Response({str(r.game_id): r.rank for r in ranks}, status=status.HTTP_200_OK)
+
+	# Save ranks: {game_id: rank}; an empty rank clears it
+	def put(self, request, format=None):
+		if not isinstance(request.data, dict):
+			return bad_request('Send an object of game id to rank.')
+
+		changes = []
+		for game_id, rank in request.data.items():
+			game = Game.objects.filter(id=int_or_none(game_id)).first()
+			if game is None:
+				return bad_request('Unknown game: ' + str(game_id))
+			rank = str(rank or '').strip()
+			if rank and rank not in game.ranks:
+				return bad_request('"' + rank + '" is not a ' + game.game_name + ' rank.')
+			changes.append((game, rank))
+
+		for game, rank in changes:
+			if rank:
+				PlayerRank.objects.update_or_create(user=request.user, game=game, defaults={'rank': rank})
+			else:
+				PlayerRank.objects.filter(user=request.user, game=game).delete()
+		return self.get(request)
+
 def get_profile(user):
 	profile = ProfileBio.objects.filter(user=user).first()
 	if profile is None:
@@ -348,6 +393,7 @@ class SessionChatView(APIView):
 	serializer_class = ChatMessageSerializer
 
 	def get_member_session(self, request, session_id):
+		GameSession.close_expired()
 		session = get_object_or_404(GameSession, id=session_id)
 		if not session.has_member(request.user):
 			return None
