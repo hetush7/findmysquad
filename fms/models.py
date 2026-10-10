@@ -67,3 +67,15 @@ class ProfileBio(models.Model):
 
     def __str__(self):
         return str(self.user) + ": " + self.bio
+
+class GamerTags(models.Model):
+    user       = models.OneToOneField(User, on_delete=models.CASCADE, related_name='gamer_tags')
+    psn        = models.CharField(max_length=50, blank=True, default='')
+    xbox       = models.CharField(max_length=50, blank=True, default='')
+    steam      = models.CharField(max_length=50, blank=True, default='')
+    riot       = models.CharField(max_length=50, blank=True, default='')
+    ea         = models.CharField(max_length=50, blank=True, default='')
+    activision = models.CharField(max_length=50, blank=True, default='')
+
+    def __str__(self):
+        return str(self.user) + "'s gamer tags"

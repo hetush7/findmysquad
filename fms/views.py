@@ -41,10 +41,10 @@ class GetSessionsView(APIView):
 	serializer_class = SessionSerializer
 	
 	def get(self, request, format=None):
-		response_data = self.serializer_class(
-			GameSession.objects.all(),
-			many=True
-		).data
+		sessions = GameSession.objects.select_related(
+			'game', 'created_by__gamer_tags'
+		).prefetch_related('players__gamer_tags')
+		response_data = self.serializer_class(sessions, many=True).data
 
 		return Response(response_data, status=status.HTTP_200_OK)
 
@@ -426,3 +426,20 @@ class UpdatePasswordView(APIView):
 		else:
 			# Not logged in 
 			return Response({}, status=status.HTTP_401_UNAUTHORIZED)
+
+class GamerTagsView(APIView):
+
+	# Get the current user's gamer tags
+	def get(self, request, format=None):
+		tags = GamerTags.objects.filter(user=request.user).first() or GamerTags(user=request.user)
+		return Response(GamerTagsSerializer(tags).data, status=status.HTTP_200_OK)
+
+	# Update the current user's gamer tags
+	def put(self, request, format=None):
+		tags, _ = GamerTags.objects.get_or_create(user=request.user)
+		serializer = GamerTagsSerializer(tags, data=request.data, partial=True)
+
+		if serializer.is_valid():
+			serializer.save()
+			return Response(serializer.data, status=status.HTTP_200_OK)
+		return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

@@ -109,6 +109,40 @@
   margin: 0;
 }
 
+.room-player-info {
+  min-width: 0;
+}
+
+.room-player-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.room-player-line .badge {
+  margin: 0;
+}
+
+.room-player-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.room-tag {
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: #f1f1f1;
+  font-size: 0.8em;
+  color: #555555;
+  word-break: break-all;
+}
+
+.room-tag b {
+  color: #333333;
+}
+
 .room-player-name {
   font-weight: 600;
   color: #333333;

@@ -36,6 +36,7 @@ import {
 import Navbar from "components/Navbars/PageNavbar.js";
 import PageFooter from "components/Footers/PageFooter";
 import API from "api/API";
+import platforms from "assets/data/platforms";
 import { useHistory, useLocation } from "react-router";
 
 import "assets/css/RoomPage.css";
@@ -55,6 +56,23 @@ function Avatar({ username }) {
     <span className="room-avatar" style={{ backgroundColor: avatarColor(username) }}>
       {username.charAt(0).toUpperCase()}
     </span>
+  );
+}
+
+// the platforms a player has added gamer tags for, e.g. "PSN · PlayerOne"
+function GamerTags({ tags }) {
+  const filled = platforms.filter(platform => tags && tags[platform.key]);
+  if (filled.length === 0) {
+    return null;
+  }
+  return (
+    <div className="room-player-tags">
+      {filled.map(platform => (
+        <span className="room-tag" key={platform.key} title={platform.label}>
+          <b>{platform.short}</b> {tags[platform.key]}
+        </span>
+      ))}
+    </div>
   );
 }
 
@@ -213,15 +231,25 @@ function RoomPage() {
                     <ul className="room-players">
                       <li className="room-player">
                         <Avatar username={session.hostUsername} />
-                        <span className="room-player-name">{session.hostUsername}</span>
-                        <Badge color="warning" pill>Host</Badge>
-                        {isHost && <Badge color="default" pill>You</Badge>}
+                        <div className="room-player-info">
+                          <div className="room-player-line">
+                            <span className="room-player-name">{session.hostUsername}</span>
+                            <Badge color="warning" pill>Host</Badge>
+                            {isHost && <Badge color="default" pill>You</Badge>}
+                          </div>
+                          <GamerTags tags={session.hostGamerTags} />
+                        </div>
                       </li>
                       {session.players.map(player => (
                         <li className="room-player" key={player.userID}>
                           <Avatar username={player.username} />
-                          <span className="room-player-name">{player.username}</span>
-                          {player.username === currentUser && <Badge color="default" pill>You</Badge>}
+                          <div className="room-player-info">
+                            <div className="room-player-line">
+                              <span className="room-player-name">{player.username}</span>
+                              {player.username === currentUser && <Badge color="default" pill>You</Badge>}
+                            </div>
+                            <GamerTags tags={player.gamerTags} />
+                          </div>
                           {isHost && (
                             <Button
                               className="btn-round room-kick"

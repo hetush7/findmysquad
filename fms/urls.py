@@ -16,6 +16,7 @@ urlpatterns = [
     path('friends', FriendsView.as_view()),
     path('profile-bio', ProfileBioView.as_view()),
     path('profile-image', ProfileImageView.as_view()),
+    path('gamer-tags', GamerTagsView.as_view()),
     path('update-password', UpdatePasswordView.as_view()),
     path('token', LoginView.as_view()),
 	path('user-check', CurrentUserCheck.as_view()),

@@ -26,13 +26,30 @@ class UserSerializer(serializers.ModelSerializer):
 	def create(self, validated_data):
 		return User.objects.create_user(**validated_data)
 
+class GamerTagsSerializer(serializers.ModelSerializer):
+	class Meta:
+		model  = GamerTags
+		fields = ('psn', 'xbox', 'steam', 'riot', 'ea', 'activision')
+
+	def validate(self, attrs):
+		return {field: value.strip() for field, value in attrs.items()}
+
+def gamer_tags_for(user):
+	# Only the platforms the user has filled in
+	try:
+		tags = user.gamer_tags
+	except GamerTags.DoesNotExist:
+		return {}
+	return {field: value for field, value in GamerTagsSerializer(tags).data.items() if value}
+
 class PlayerSerializer(serializers.ModelSerializer):
-	userID   = serializers.SerializerMethodField('get_id')
-	username = serializers.SerializerMethodField('get_username')
+	userID    = serializers.SerializerMethodField('get_id')
+	username  = serializers.SerializerMethodField('get_username')
+	gamerTags = serializers.SerializerMethodField('get_gamer_tags')
 
 	class Meta:
 		model  = User
-		fields = ('userID', 'username')
+		fields = ('userID', 'username', 'gamerTags')
 
 	def get_id(self, obj):
 		return obj.id
@@ -40,10 +57,14 @@ class PlayerSerializer(serializers.ModelSerializer):
 	def get_username(self, obj):
 		return obj.username
 
+	def get_gamer_tags(self, obj):
+		return gamer_tags_for(obj)
+
 class SessionSerializer(serializers.ModelSerializer):
 	id                 = serializers.SerializerMethodField('get_id')
 	hostID             = serializers.SerializerMethodField('get_host_id')
 	hostUsername       = serializers.SerializerMethodField('get_host_username')
+	hostGamerTags      = serializers.SerializerMethodField('get_host_gamer_tags')
 	gameID             = serializers.SerializerMethodField('get_game_id')
 	gameImagePath      = serializers.SerializerMethodField('get_game_imagepath')
 	sessionName        = serializers.SerializerMethodField('get_name')
@@ -67,6 +88,9 @@ class SessionSerializer(serializers.ModelSerializer):
 
 	def get_host_username(self, obj):
 		return obj.created_by.username
+
+	def get_host_gamer_tags(self, obj):
+		return gamer_tags_for(obj.created_by)
 
 	def get_game_id(self, obj):
 		return obj.game.id

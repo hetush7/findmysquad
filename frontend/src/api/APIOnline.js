@@ -696,6 +696,73 @@ export class APIOnline {
         });
     }
 
+    /**
+     * A function to get the current user's gamer tags
+     * @returns An object of platform -> tag (empty strings for unset platforms), or false on error
+     */
+    getGamerTags() {
+        const requestOptions = {
+            method: 'get',
+            headers: { 
+              'Accept': 'application/json',
+              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+            },
+        };
+
+        return new Promise((resolve) => {
+            var responseCode = 0;
+            fetch('http://localhost:8000/api/gamer-tags', requestOptions)
+                .then(function(response) {
+                    responseCode = response.status
+                    return response.json()
+                })
+                .then(function(data){
+                    if (responseCode === 200) { resolve(data) }
+                    else if (responseCode === 401) {
+                        alert('YOU ARE LOGGED OUT')
+                        window.location.replace('http://localhost:3000/login-page')
+                    }
+                    else { resolve(false) }
+                })
+                .catch(() => resolve(false))
+        });
+    }
+
+    /**
+     * A function to update the current user's gamer tags
+     * @param tags - An object of platform -> tag
+     * @returns null on success, otherwise an error message
+     */
+    updateGamerTags(tags) {
+        const requestOptions = {
+            method: 'put',
+            headers: { 
+              'Accept': 'application/json',
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+            },
+            body: JSON.stringify(tags)
+        };
+
+        return new Promise((resolve) => {
+            var responseCode = 0;
+            fetch('http://localhost:8000/api/gamer-tags', requestOptions)
+                .then(function(response) {
+                    responseCode = response.status
+                    return response.json()
+                })
+                .then(function(data){
+                    if (responseCode === 200) { resolve(null) }
+                    else if (responseCode === 401) {
+                        alert('YOU ARE LOGGED OUT')
+                        window.location.replace('http://localhost:3000/login-page')
+                    }
+                    else { resolve(Object.values(data).flat().join(' ') || 'Error') }
+                })
+                .catch(() => resolve('Could not reach the server.'))
+        });
+    }
+
     getUserImage() {
         const requestOptions = {
             method: 'get',

@@ -36,7 +36,8 @@ import {
   InputGroupText,
   InputGroup,
   Form,
-  FormGroup
+  FormGroup,
+  Label
 } from "reactstrap";
 
 // core components
@@ -46,6 +47,7 @@ import Footer from "components/Footers/PageFooter.js";
 
 import "assets/css/demo.css"
 import API from "api/API";
+import platforms from "assets/data/platforms";
 
 function ProfilePage() {
 
@@ -63,6 +65,8 @@ function ProfilePage() {
   const [newPassword1, setNewPassword1] = useState(""); // Password Input
   const [newPassword2, setNewPassword2] = useState(""); // Confirmation password input
   const [imageURL, setImageURL] = useState(placeholder); // preview image URL
+  const [gamerTags, setGamerTags] = useState({}); // platform -> gamer tag
+  const [gamerTagsFeedback, setGamerTagsFeedback] = useState(null); // { color, text }
   const [profilePic, setProfilePic] = useState(placeholder) // Profile Pic Image URL
   const current_user = localStorage.getItem('current_user') // current user
 
@@ -236,12 +240,26 @@ function ProfilePage() {
       history.push(from.pathname)
   }
 
+  function saveGamerTags(e) {
+    e.preventDefault();
+    api.updateGamerTags(gamerTags).then(error => {
+      if (error === null) {
+        setGamerTagsFeedback({ color: "text-success", text: "Gamer tags saved!" });
+      } else {
+        setGamerTagsFeedback({ color: "text-danger", text: error });
+      }
+    })
+  }
+
   document.documentElement.classList.remove("nav-open");
   React.useEffect(() => {
       fetchFriends()
       fetchFriendRequests()
       fetchBio()
       fetchImage()
+      api.getGamerTags().then(data => {
+        if (data) { setGamerTags(data) }
+      })
 
       document.body.classList.add("profile-page");
       return function cleanup() {
@@ -347,6 +365,16 @@ function ProfilePage() {
                     }}
                   >
                     Picture
+                  </NavLink>
+                </NavItem>
+                <NavItem>
+                  <NavLink
+                    className={activeTab === "7" ? "active" : ""}
+                    onClick={() => {
+                      toggle("7");
+                    }}
+                  >
+                    Gamer tags
                   </NavLink>
                 </NavItem>
               </Nav>
@@ -596,6 +624,43 @@ function ProfilePage() {
                   <Button className="btn-round" color="danger" onClick={ e => updateImage(e)} >
                     Update
                   </Button>
+                </Col>
+              </Row>
+            </TabPane>
+
+            {/* Gamer tags */}
+            <TabPane className="text-left" tabId="7" id="gamer-tags">
+              <Row>
+                <Col className="ml-auto mr-auto text-center" md="6">
+                  <h2 className="title">Gamer tags</h2>
+                  <p>Add the accounts you play on so your squad can find you. They're shown to other players in your rooms.</p>
+                </Col>
+              </Row>
+              <Row>
+                <Col className="ml-auto mr-auto" md="5">
+                  <Form onSubmit={saveGamerTags}>
+                    {platforms.map(platform => (
+                      <FormGroup key={platform.key}>
+                        <Label for={"tag-" + platform.key}>{platform.label}</Label>
+                        <Input
+                          id={"tag-" + platform.key}
+                          type="text"
+                          maxLength={50}
+                          placeholder={platform.placeholder}
+                          value={gamerTags[platform.key] || ""}
+                          onChange={e => setGamerTags({ ...gamerTags, [platform.key]: e.target.value })}
+                        />
+                      </FormGroup>
+                    ))}
+                    <div className="text-center">
+                      <Button className="btn-round" color="danger" type="submit">
+                        Save
+                      </Button>
+                      {gamerTagsFeedback && (
+                        <h6 className={gamerTagsFeedback.color}>{gamerTagsFeedback.text}</h6>
+                      )}
+                    </div>
+                  </Form>
                 </Col>
               </Row>
             </TabPane>

@@ -228,3 +228,57 @@ class SecurityTest(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.player.refresh_from_db()
         self.assertTrue(self.player.check_password('N3w-Strong-Pass!'))
+
+
+#Testing gamer tags on profiles and in session data
+class GamerTagsTest(TestCase):
+
+    def setUp(self):
+        self.client = APIClient()
+        self.host = User.objects.create_user(username='host', password='1X<ISRUkw+tuK')
+        self.player = User.objects.create_user(username='player', password='1X<ISRUkw+tuK')
+        game = Game.objects.create(game_short_name="Apex", game_name="Apex Legends", description="desc", image_path="img.jpg")
+        self.session = GameSession.objects.create(created_by=self.host, game=game, max_players=3, session_name="s", description="d", instructions="i")
+        self.session.players.add(self.player)
+
+    def login(self, user):
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {RefreshToken.for_user(user).access_token}')
+
+    def test_requires_login(self):
+        resp = self.client.get('/api/gamer-tags')
+        self.assertEqual(resp.status_code, 401)
+
+    def test_get_defaults_to_empty(self):
+        self.login(self.player)
+        resp = self.client.get('/api/gamer-tags')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data, {'psn': '', 'xbox': '', 'steam': '', 'riot': '', 'ea': '', 'activision': ''})
+        self.assertFalse(GamerTags.objects.filter(user=self.player).exists())
+
+    def test_update_and_partial_update(self):
+        self.login(self.player)
+        resp = self.client.put('/api/gamer-tags', {'psn': '  PlayerOne ', 'riot': 'Player#EUW'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['psn'], 'PlayerOne')
+
+        self.client.put('/api/gamer-tags', {'psn': ''}, format='json')
+        tags = GamerTags.objects.get(user=self.player)
+        self.assertEqual(tags.psn, '')
+        self.assertEqual(tags.riot, 'Player#EUW')
+
+    def test_rejects_too_long(self):
+        self.login(self.player)
+        resp = self.client.put('/api/gamer-tags', {'xbox': 'x' * 51}, format='json')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_tags_shown_in_sessions(self):
+        GamerTags.objects.create(user=self.host, steam='HostSteam')
+        GamerTags.objects.create(user=self.player, psn='PlayerPSN')
+        session = self.client.get('/api/get-sessions').data[0]
+        self.assertEqual(session['hostGamerTags'], {'steam': 'HostSteam'})
+        self.assertEqual(session['players'][0]['gamerTags'], {'psn': 'PlayerPSN'})
+
+    def test_sessions_without_tags(self):
+        session = self.client.get('/api/get-sessions').data[0]
+        self.assertEqual(session['hostGamerTags'], {})
+        self.assertEqual(session['players'][0]['gamerTags'], {})
