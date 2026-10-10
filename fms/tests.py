@@ -379,3 +379,53 @@ class SessionChatTest(TestCase):
         self.login(self.outsider)
         resp = self.client.post(self.url + '/report', {'message_id': message.id}, format='json')
         self.assertEqual(resp.status_code, 403)
+
+
+#Testing rank ranges on games and sessions
+class RankRangeTest(TestCase):
+
+    RANKS = ['Rookie', 'Bronze', 'Silver', 'Gold', 'Platinum', 'Diamond', 'Master', 'Apex Predator']
+
+    def setUp(self):
+        self.client = APIClient()
+        self.host = User.objects.create_user(username='host', password='1X<ISRUkw+tuK')
+        self.game = Game.objects.create(game_short_name="Apex", game_name="Apex Legends", description="desc", image_path="img.jpg", ranks=self.RANKS)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {RefreshToken.for_user(self.host).access_token}')
+
+    def create(self, **ranks):
+        body = {'game_id': self.game.id, 'max_players': 3, 'session_name': 's', 'description': 'd', 'instructions': 'i', **ranks}
+        return self.client.post('/api/create-session', body, format='json')
+
+    def test_game_info_includes_ranks(self):
+        resp = self.client.get('/api/game-info')
+        self.assertEqual(resp.data[0]['ranks'], self.RANKS)
+
+    def test_create_with_rank_range(self):
+        resp = self.create(min_rank='Gold', max_rank='Diamond')
+        self.assertEqual(resp.status_code, 201)
+        session = self.client.get('/api/get-sessions').data[0]
+        self.assertEqual((session['minRank'], session['maxRank']), ('Gold', 'Diamond'))
+
+    def test_create_without_rank_range(self):
+        self.assertEqual(self.create().status_code, 201)
+        session = self.client.get('/api/get-sessions').data[0]
+        self.assertEqual((session['minRank'], session['maxRank']), (None, None))
+
+    def test_one_sided_range(self):
+        self.assertEqual(self.create(min_rank='Platinum').status_code, 201)
+        session = self.client.get('/api/get-sessions').data[0]
+        self.assertEqual((session['minRank'], session['maxRank']), ('Platinum', None))
+
+    def test_rejects_rank_from_another_game(self):
+        resp = self.create(min_rank='Challenger')
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('not a Apex Legends rank', resp.data['detail'])
+        self.assertFalse(GameSession.objects.exists())
+
+    def test_rejects_inverted_range(self):
+        resp = self.create(min_rank='Diamond', max_rank='Gold')
+        self.assertEqual(resp.status_code, 400)
+        self.assertFalse(GameSession.objects.exists())
+
+    def test_same_min_and_max(self):
+        self.assertEqual(self.create(min_rank='Gold', max_rank='Gold').status_code, 201)

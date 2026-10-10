@@ -71,6 +71,14 @@ class SessionView(APIView):
 					return Response({}, status=status.HTTP_400_BAD_REQUEST)
 
 			game = Game.objects.get(id=request.data['game_id'])
+
+			# optional rank range, e.g. Gold to Diamond
+			min_rank = (request.data.get('min_rank') or '').strip()
+			max_rank = (request.data.get('max_rank') or '').strip()
+			rank_error = game.rank_range_error(min_rank, max_rank)
+			if rank_error:
+				return Response({'detail': rank_error}, status=status.HTTP_400_BAD_REQUEST)
+
 			new_session = GameSession(
 				created_by   = current_user,
 				game         = game,
@@ -78,6 +86,8 @@ class SessionView(APIView):
 				session_name = request.data['session_name'],
 				description  = request.data['description'],
 				instructions = request.data['instructions'],
+				min_rank     = min_rank,
+				max_rank     = max_rank,
 			)
 			new_session.save()
 			return Response({'id': new_session.id}, status=status.HTTP_201_CREATED)

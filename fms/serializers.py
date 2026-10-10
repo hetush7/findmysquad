@@ -74,11 +74,13 @@ class SessionSerializer(serializers.ModelSerializer):
 	maxPlayers         = serializers.SerializerMethodField('get_max_players')
 	players            = serializers.SerializerMethodField('get_players')
 	gameShortName      = serializers.SerializerMethodField('get_game_short_name')
+	minRank            = serializers.SerializerMethodField('get_min_rank')
+	maxRank            = serializers.SerializerMethodField('get_max_rank')
 
 	class Meta:
 		model  = GameSession
 		exclude = ('max_players', 'session_name', 'description', 'instructions', 
-		'created_by', 'game')
+		'created_by', 'game', 'min_rank', 'max_rank')
 
 	def get_id(self, obj):
 		return obj.id
@@ -116,6 +118,12 @@ class SessionSerializer(serializers.ModelSerializer):
 	def get_game_short_name(self, obj):
 		return obj.game.game_short_name
 
+	def get_min_rank(self, obj):
+		return obj.min_rank or None
+
+	def get_max_rank(self, obj):
+		return obj.max_rank or None
+
 	def get_players(self, obj):
 		return PlayerSerializer(obj.players, many=True).data
 
@@ -128,7 +136,7 @@ class GameSerializer(serializers.ModelSerializer):
 
 	class Meta:
 		model = Game
-		fields = ['id','gameShortName','gameName','gameDescription','imagePath']
+		fields = ['id','gameShortName','gameName','gameDescription','imagePath','ranks']
 	
 	def get_id(self, obj):
 		return obj.id

@@ -25,9 +25,19 @@ class Game(models.Model):
     game_name       = models.CharField(max_length=100)
     description     = models.CharField(max_length=300)
     image_path      = models.CharField(max_length=300)
+    ranks           = models.JSONField(default=list, blank=True)  # rank names, lowest first
 
     def __str__(self):
         return self.game_name
+
+    def rank_range_error(self, min_rank, max_rank):
+        # Returns an error message for an invalid rank range, or None. Blank means no limit.
+        for rank in (min_rank, max_rank):
+            if rank and rank not in self.ranks:
+                return '"' + rank + '" is not a ' + self.game_name + ' rank.'
+        if min_rank and max_rank and self.ranks.index(min_rank) > self.ranks.index(max_rank):
+            return 'Minimum rank cannot be higher than maximum rank.'
+        return None
 
 class GameSession(models.Model):
     created_by   = models.ForeignKey(User, on_delete=models.CASCADE, related_name='my_session')
@@ -37,6 +47,8 @@ class GameSession(models.Model):
     description  = models.CharField(max_length=300)
     instructions = models.CharField(max_length=300)
     players      = models.ManyToManyField(User)
+    min_rank     = models.CharField(max_length=50, blank=True, default='')
+    max_rank     = models.CharField(max_length=50, blank=True, default='')
 
     def __str__(self):
         return str(self.created_by) + ": " + self.session_name

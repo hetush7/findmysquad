@@ -38,6 +38,7 @@ import PageFooter from "components/Footers/PageFooter";
 import API from "api/API";
 import RoomChat from "components/RoomChat";
 import platforms from "assets/data/platforms";
+import { rankRangeLabel } from "utils/ranks";
 import { useHistory, useLocation } from "react-router";
 
 import "assets/css/RoomPage.css";
@@ -224,6 +225,7 @@ function RoomPage() {
                   <Badge color={session.full ? "danger" : "success"} pill>
                     {session.full ? "Full" : `${openSlots} slot${openSlots === 1 ? "" : "s"} open`}
                   </Badge>
+                  <Badge color="info" pill>{rankRangeLabel(session)}</Badge>
                   {isHost && <Badge color="warning" pill>You're the host</Badge>}
                 </div>
               </Col>

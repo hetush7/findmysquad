@@ -21,6 +21,7 @@ import { useHistory, useLocation } from "react-router";
 
 // reactstrap components
 import {
+  Badge,
   Form,
   FormGroup,
   Label,
@@ -42,6 +43,7 @@ import Navbar from "components/Navbars/PageNavbar.js";
 import SessionsPageHeader from "components/Headers/SessionsPageHeader";
 import Footer from "components/Footers/PageFooter.js";
 import API from "api/API";
+import { rankRangeLabel, rankAllowed } from "utils/ranks";
 
 // json
 import filters from "assets/data/filters.json";
@@ -97,8 +99,21 @@ function SessionsPage() {
   // update sessions list with new filtered data
   async function filter() {
     var allSessions = await api.getSessions(filterVal);
+
+    // "Your rank": only rooms for that game whose rank range includes the player's rank
+    const rankGame = games.find(game => game.id === rankFilterGame);
+    if (rankGame && rankFilterRank) {
+      allSessions = allSessions.filter(session =>
+        session.gameID === rankGame.id && rankAllowed(session, rankGame.ranks, rankFilterRank)
+      );
+    }
     setSessionsData(allSessions);
   }
+
+  // set state hook for the "Your rank" filter
+  const [rankFilterGame, setRankFilterGame] = useState(null);
+  const [rankFilterRank, setRankFilterRank] = useState("");
+  const rankFilterRanks = (games.find(game => game.id === rankFilterGame) || {}).ranks || [];
 
   // handle all filter selection
   function handleOnChange(value) {
@@ -120,6 +135,16 @@ function SessionsPage() {
   const [formName, setFormName] = useState("");
   const [formDescription, setFormDescription] = useState("");
   const [formHiddenDescription, setFormHiddenDescription] = useState("");
+  const [formMinRank, setFormMinRank] = useState("");
+  const [formMaxRank, setFormMaxRank] = useState("");
+  const formRanks = (games.find(game => game.id === formGame) || {}).ranks || [];
+
+  // ranks belong to a game, so picking another game clears the rank range
+  function selectFormGame(gameID) {
+    setFormGame(gameID);
+    setFormMinRank("");
+    setFormMaxRank("");
+  }
   const [count1, setCount1] = useState(300);
   const [count2, setCount2] = useState(300);
 
@@ -159,19 +184,25 @@ function SessionsPage() {
       return;
     }
 
+    if (formMinRank && formMaxRank && formRanks.indexOf(formMinRank) > formRanks.indexOf(formMaxRank)) {
+      document.getElementById("createFeedback").hidden = false;
+      document.getElementById("createFeedback").innerHTML = "Minimum rank cannot be higher than maximum rank";
+      return;
+    }
+
     // remove sessionID from web session storage
     sessionStorage.removeItem("sessionID");
 
     // call api to create new session with form variables
-    var newSession = await api.createSession([formGame, formMaxPlayers, formName, formDescription, formHiddenDescription]);
+    var result = await api.createSession([formGame, formMaxPlayers, formName, formDescription, formHiddenDescription, formMinRank, formMaxRank]);
 
     // if a sessionID is returned, save sessionID to web session storage and redirect to room-page. Otherwise, show error message.
-    if ( newSession > 0){
+    if (result.id){
       document.getElementById("createFeedback").hidden = true;
-      sessionStorage.setItem("sessionID", newSession);
-      redirect(newSession);
+      sessionStorage.setItem("sessionID", result.id);
+      redirect(result.id);
     } else {
-      document.getElementById("createFeedback").innerHTML = "Error creating session";
+      document.getElementById("createFeedback").innerText = result.error;
       document.getElementById("createFeedback").hidden = false;
     };
   }
@@ -212,7 +243,7 @@ function SessionsPage() {
                                   <Col md="8">
                                     <FormGroup>
                                       <label htmlFor="gameCategory">Game</label>
-                                      <Input id="gameSelect" type="select" onChange={e => setFormGame(parseInt(e.target.value))}>
+                                      <Input id="gameSelect" type="select" onChange={e => selectFormGame(parseInt(e.target.value))}>
                                         {Array.from({ length: games.length }).map((_, idx) => (
                                           <option key={"select"+idx} value={games[idx].id}>{games[idx].gameName}</option>
                                         ))}
@@ -244,6 +275,32 @@ function SessionsPage() {
                                 <Input placeholder="Session Name" type="text" onChange={e => setFormName(e.target.value)}/>
                               </Col>
                             </Row>
+                            {formRanks.length > 0 && (
+                              <Row>
+                                <Col md="3">
+                                  <FormGroup>
+                                    <label htmlFor="minRankSelect">Minimum Rank</label>
+                                    <Input id="minRankSelect" type="select" value={formMinRank} onChange={e => setFormMinRank(e.target.value)}>
+                                      <option value="">Any</option>
+                                      {formRanks.map(rank => <option key={"min" + rank} value={rank}>{rank}</option>)}
+                                    </Input>
+                                  </FormGroup>
+                                </Col>
+                                <Col md="3">
+                                  <FormGroup>
+                                    <label htmlFor="maxRankSelect">Maximum Rank</label>
+                                    <Input id="maxRankSelect" type="select" value={formMaxRank} onChange={e => setFormMaxRank(e.target.value)}>
+                                      <option value="">Any</option>
+                                      {formRanks.map(rank => <option key={"max" + rank} value={rank}>{rank}</option>)}
+                                    </Input>
+                                  </FormGroup>
+                                </Col>
+                                <Col md="6" className="text-left">
+                                  <label>&nbsp;</label>
+                                  <p className="text-muted">Optional. Leave as "Any" to welcome every rank.</p>
+                                </Col>
+                              </Row>
+                            )}
                             <Row>
                               <Col md="6">
                                 <label>Description</label>
@@ -349,6 +406,40 @@ function SessionsPage() {
                           ))}
                         </Row>
                       </FormGroup>
+                      <h3 className="text-left">Your rank</h3>
+                      <Row>
+                        <Col md="4">
+                          <Input
+                            id="rankFilterGame"
+                            type="select"
+                            aria-label="Game for rank filter"
+                            value={rankFilterGame || ""}
+                            onChange={e => { setRankFilterGame(e.target.value ? parseInt(e.target.value) : null); setRankFilterRank(""); }}
+                          >
+                            <option value="">Any game</option>
+                            {games.filter(game => game.ranks && game.ranks.length > 0).map(game => (
+                              <option key={"rankGame" + game.id} value={game.id}>{game.gameName}</option>
+                            ))}
+                          </Input>
+                        </Col>
+                        <Col md="4">
+                          <Input
+                            id="rankFilterRank"
+                            type="select"
+                            aria-label="Your rank"
+                            value={rankFilterRank}
+                            disabled={!rankFilterGame}
+                            onChange={e => setRankFilterRank(e.target.value)}
+                          >
+                            <option value="">Select your rank</option>
+                            {rankFilterRanks.map(rank => <option key={"rankFilter" + rank} value={rank}>{rank}</option>)}
+                          </Input>
+                        </Col>
+                        <Col md="4" className="text-left">
+                          <p className="text-muted">Shows only rooms for this game that accept your rank.</p>
+                        </Col>
+                      </Row>
+                      <br />
                       <Button onClick={() => filter()} color="primary">Filter</Button>
                     </form>
                   </CardBody>
@@ -366,6 +457,9 @@ function SessionsPage() {
                       <CardBody>
                         <CardText>{sessions[idx].sessionDescription}</CardText>
                         <CardText>Hosted by: <b>{sessions[idx].hostUsername}</b></CardText>
+                        <Badge color={sessions[idx].minRank || sessions[idx].maxRank ? "info" : "default"} pill>
+                          {rankRangeLabel(sessions[idx])}
+                        </Badge>
                       </CardBody>
                       <Button color="primary" onClick={ () => openRoom(sessions[idx]) }>Join</Button>
                     </Card>

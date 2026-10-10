@@ -134,46 +134,43 @@ export class APIOnline {
 
     /**
      * A function to create a new session
-     * @param param0 - An array of all form inputs [formGame, formMaxPlayers, formName, formDescription, formHiddenDescription]
-     * @returns - The session ID of the newly created session
+     * @param param0 - An array of all form inputs [formGame, formMaxPlayers, formName, formDescription, formHiddenDescription, formMinRank, formMaxRank]
+     * @returns - { id } of the newly created session, or { error } with a message
      */
-    createSession([formGame, formMaxPlayers, formName, formDescription, formHiddenDescription]) {
-
-        // 99 max player to simulate error creating by returning 0
-        if (formMaxPlayers === 99) {
-            return 0;
-        } else {
-            const requestOptions = {
-                method: 'post',
-                headers: { 
-                  'Accept': 'application/json',
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-                },
-                body: JSON.stringify({ game_id: formGame,
-                                       max_players: formMaxPlayers,
-                                       session_name: formName,
-                                       description: formDescription,
-                                       instructions: formHiddenDescription })
-            }
-            
-            // push data to api and return new id from api
-            return new Promise((resolve) => {
-                var responseCode = 0;
-                fetch('http://localhost:8000/api/create-session', requestOptions)
-                    .then(function(response) {
-                        responseCode = response.status
-                        return response.json()
-                    })
-                    .then(function(data){
-                        if (responseCode === 201) { resolve(data.id) } 
-                        else if (responseCode === 401) {
-                            alert('YOU ARE LOGGED OUT')
-                            window.location.replace('http://localhost:3000/login-page')
-                        }
-                        else { resolve(0) } })
-            });
+    createSession([formGame, formMaxPlayers, formName, formDescription, formHiddenDescription, formMinRank, formMaxRank]) {
+        const requestOptions = {
+            method: 'post',
+            headers: { 
+              'Accept': 'application/json',
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+            },
+            body: JSON.stringify({ game_id: formGame,
+                                   max_players: formMaxPlayers,
+                                   session_name: formName,
+                                   description: formDescription,
+                                   instructions: formHiddenDescription,
+                                   min_rank: formMinRank || '',
+                                   max_rank: formMaxRank || '' })
         }
+
+        // push data to api and return new id from api
+        return new Promise((resolve) => {
+            var responseCode = 0;
+            fetch('http://localhost:8000/api/create-session', requestOptions)
+                .then(function(response) {
+                    responseCode = response.status
+                    return response.json()
+                })
+                .then(function(data){
+                    if (responseCode === 201) { resolve({ id: data.id }) } 
+                    else if (responseCode === 401) {
+                        alert('YOU ARE LOGGED OUT')
+                        window.location.replace('http://localhost:3000/login-page')
+                    }
+                    else { resolve({ error: data.detail || 'Error creating session' }) } })
+                .catch(() => resolve({ error: 'Could not reach the server.' }))
+        });
     }
 
     /**

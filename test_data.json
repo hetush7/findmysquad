@@ -36,7 +36,17 @@
             "game_short_name": "Apex",
             "game_name": "Apex Legends",
             "description": "Apex Legends is a free-to-play battle royale-hero shooter game developed by Respawn Entertainment and published by Electronic Arts. It was released for Microsoft Windows, PlayStation 4, and Xbox One in February 2019, and for Nintendo Switch in March 2021",
-            "image_path": "../assets/img/GameLogo_ApexLegendsNew.png"
+            "image_path": "../assets/img/GameLogo_ApexLegendsNew.png",
+            "ranks": [
+                "Rookie",
+                "Bronze",
+                "Silver",
+                "Gold",
+                "Platinum",
+                "Diamond",
+                "Master",
+                "Apex Predator"
+            ]
         }
     },
     {
@@ -46,7 +56,17 @@
             "game_short_name": "COD",
             "game_name": "Call of Duty",
             "description": "Call of Duty is a first-person shooter video game franchise published by Activision. Starting out in 2003, it first focused on games set in World War II. Over time, the series has seen games set in the midst of the Cold War, futuristic worlds, and outer space.",
-            "image_path": "../assets/img/GameLogo_CallOfDutyNew.png"
+            "image_path": "../assets/img/GameLogo_CallOfDutyNew.png",
+            "ranks": [
+                "Bronze",
+                "Silver",
+                "Gold",
+                "Platinum",
+                "Diamond",
+                "Crimson",
+                "Iridescent",
+                "Top 250"
+            ]
         }
     },
     {
@@ -56,7 +76,19 @@
             "game_short_name": "LoL",
             "game_name": "League of Legends",
             "description": "League of Legends, commonly referred to as League, is a 2009 multiplayer online battle arena video game developed and published by Riot Games. Inspired by Defense of the Ancients, a custom map for Warcraft III, Riot's founders sought to develop a stand-alone game in the same genre.",
-            "image_path": "../assets/img/GameLogo_LeagueOfLegendsNew.png"
+            "image_path": "../assets/img/GameLogo_LeagueOfLegendsNew.png",
+            "ranks": [
+                "Iron",
+                "Bronze",
+                "Silver",
+                "Gold",
+                "Platinum",
+                "Emerald",
+                "Diamond",
+                "Master",
+                "Grandmaster",
+                "Challenger"
+            ]
         }
     }
 ]
