@@ -1,135 +1,128 @@
+// Base address of the Django API. Set REACT_APP_API_URL to point the app at another server.
+const API_URL = (process.env.REACT_APP_API_URL || "http://localhost:8000").replace(/\/+$/, "") + "/api";
+
+let redirectingToLogin = false;
+
+// Called when the server says the user isn't (or is no longer) logged in.
+function handleLoggedOut() {
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('current_user');
+    if (!redirectingToLogin) {
+        redirectingToLogin = true;
+        alert('Please log in to continue.');
+        window.location.assign('/login-page');
+    }
+}
+
+/**
+ * Shared request helper for every API call.
+ * @param path - API path, e.g. "/game-info"
+ * @param options.method - HTTP method (default GET)
+ * @param options.body - Object sent as JSON
+ * @param options.redirectOn401 - Send the user to the login page when the server returns 401 (default true)
+ * @returns { ok, status, data } - status is 0 when the server couldn't be reached
+ */
+async function request(path, { method = 'GET', body, redirectOn401 = true } = {}) {
+    const headers = { 'Accept': 'application/json' };
+    const token = localStorage.getItem('access_token');
+    if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+    }
+    if (body !== undefined) {
+        headers['Content-Type'] = 'application/json';
+    }
+
+    let response;
+    try {
+        response = await fetch(API_URL + path, {
+            method,
+            headers,
+            body: body === undefined ? undefined : JSON.stringify(body),
+        });
+    } catch {
+        return { ok: false, status: 0, data: { detail: 'Could not reach the server.' } };
+    }
+
+    let data = null;
+    try {
+        data = await response.json();
+    } catch {
+        // empty or non-JSON body
+    }
+
+    if (response.status === 401 && redirectOn401) {
+        handleLoggedOut();
+    }
+    return { ok: response.ok, status: response.status, data };
+}
+
+// Turn an error response body into one readable message
+function errorMessage(data, fallback) {
+    if (!data) {
+        return fallback;
+    }
+    if (data.detail) {
+        return String(data.detail);
+    }
+    return Object.values(data).flat().join(' ') || fallback;
+}
 
 export class APIOnline {
 
     /**
      * A function to get all games
-     * @returns A list of all games
+     * @returns A list of all games (empty if they couldn't be loaded)
      */
-    getGames() {
-        return new Promise((resolve) => {
-            var responseCode = 0;
-            fetch('http://localhost:8000/api/game-info')
-                .then(function(response) {
-                    responseCode = response.status
-                    return response.json()
-                })
-                .then(function(data) {
-                    if (responseCode === 200) { resolve(data) } 
-                    else { alert("Invalid Games") } })
-        });
+    async getGames() {
+        const { ok, data } = await request('/game-info');
+        return ok ? data : [];
     }
 
     /**
-     * A function to get deatils of a game
+     * A function to get details of a game
      * @param id - The game ID
-     * @returns - The full details of a game with matching ID
+     * @returns - The full details of the game with matching ID, or undefined
      */
     async getGame(id) {
-
-        // filter the games for matching id
-        var games = await this.getGames()
-        let path = games.filter(games => {
-            return games.id === parseInt(id)
-        })
-
-        // if no match, return null
-        if (path === undefined) {
-            return null;
-        }
-
-        // return the first (only) element
-        return path[0];
+        const games = await this.getGames();
+        return games.find(game => game.id === parseInt(id));
     }
 
     /**
-     * A function to get all sessions that fits all the filter criteria
-     * @param filter - An array of filter criteria
-     * @returns - A new list of sessions that fits the criteria
+     * A function to get all sessions that fit all the filter criteria
+     * @param filter - An array of filter values: game short names, and/or "friend" for rooms hosted by friends
+     * @returns - A list of matching sessions
      */
     async getSessions(filter) {
+        const { ok, data } = await request('/get-sessions');
+        let sessions = ok ? data : [];
 
-        if (filter.length > 0) {
-            if(filter.includes('friend')){
-                //Filtering on Games and Friends both
-                var friends = await this.getFriends();
-
-                return new Promise((resolve) => {
-                    let friendsList = []
-                    for(var n = 0 ; n < friends.length ; n++){
-                        friendsList.push(friends[n].username)
-                    }
-                    fetch('http://localhost:8000/api/get-sessions')
-                        .then(function(response) {
-                            return response.json()
-                        })
-                        .then(function(data) { 
-                            let session = data.filter(data => {
-                                return filter.includes(data.gameShortName)
-                            })
-                            session = data.filter(data => {
-                                console.log(friendsList)
-                                return friendsList.includes(data.hostUsername)
-                            })
-                            // if no match, return null
-                            if (session === undefined) {
-                                resolve (null)
-                            }
-                            resolve(session)  
-                        })
-            });
-            }
-            else{
-                //Filtering only on games
-                return new Promise((resolve) => {
-                    fetch('http://localhost:8000/api/get-sessions')
-                        .then(function(response) {
-                            return response.json()
-                        })
-                        .then(function(data) { 
-                            let session = data.filter(data => {
-                                return filter.includes(data.gameShortName)
-                            })
-                            // if no match, return null
-                            if (session === undefined) {
-                                resolve (null)
-                            }
-                            resolve(session) 
-                        })
-            });
-            }
-        } else {
-            return new Promise((resolve) => {
-                fetch('http://localhost:8000/api/get-sessions')
-                    .then(function(response) {
-                        return response.json()
-                    })
-                    .then(function(data) { 
-                        resolve(data)
-                    })
-            });
-        } 
+        const gameFilter = filter.filter(value => value !== 'friend');
+        if (gameFilter.length > 0) {
+            sessions = sessions.filter(session => gameFilter.includes(session.gameShortName));
+        }
+        if (filter.includes('friend')) {
+            const friends = (await this.getFriends()).map(friend => friend.username);
+            sessions = sessions.filter(session => friends.includes(session.hostUsername));
+        }
+        return sessions;
     }
 
     /**
-     * A function to get details of a session
+     * A function to get details of a session. Squad members also get the join
+     * instructions and gamer tags.
      * @param id - The session ID
-     * @returns - The full details of a session with matching ID
+     * @returns - The session, or null if it doesn't exist. Throws on network/server errors.
      */
     async getSession(id) {
-
-        // filter the sessions for matching id
-        var sessions = await this.getSessions([])
-        let session = sessions.filter(sessions => {
-            return sessions.id === parseInt(id)
-        })
-
-        // if no match, return null
-        if (session === undefined) {
+        const { status, data } = await request(`/session/${id}`);
+        if (status === 200) {
+            return data;
+        }
+        if (status === 404) {
             return null;
         }
-
-        // return the first (only) element
-        return session[0];
+        throw new Error(`Could not load session (${status})`);
     }
 
     /**
@@ -137,234 +130,92 @@ export class APIOnline {
      * @param param0 - An array of all form inputs [formGame, formMaxPlayers, formName, formDescription, formHiddenDescription, formMinRank, formMaxRank]
      * @returns - { id } of the newly created session, or { error } with a message
      */
-    createSession([formGame, formMaxPlayers, formName, formDescription, formHiddenDescription, formMinRank, formMaxRank]) {
-        const requestOptions = {
-            method: 'post',
-            headers: { 
-              'Accept': 'application/json',
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+    async createSession([formGame, formMaxPlayers, formName, formDescription, formHiddenDescription, formMinRank, formMaxRank]) {
+        const { status, data } = await request('/create-session', {
+            method: 'POST',
+            body: {
+                game_id: formGame,
+                max_players: formMaxPlayers,
+                session_name: formName,
+                description: formDescription,
+                instructions: formHiddenDescription,
+                min_rank: formMinRank || '',
+                max_rank: formMaxRank || '',
             },
-            body: JSON.stringify({ game_id: formGame,
-                                   max_players: formMaxPlayers,
-                                   session_name: formName,
-                                   description: formDescription,
-                                   instructions: formHiddenDescription,
-                                   min_rank: formMinRank || '',
-                                   max_rank: formMaxRank || '' })
+        });
+        return status === 201 ? { id: data.id } : { error: errorMessage(data, 'Error creating session') };
+    }
+
+    /**
+     * A function to join a session
+     * @returns - Boolean, true if the user joined
+     */
+    async joinSession(sessionID) {
+        const { ok } = await request('/create-session', { method: 'PUT', body: { session_id: sessionID, action: 0 } });
+        return ok;
+    }
+
+    /**
+     * A function to leave a session (the host leaving closes it)
+     * @returns - Boolean, true if the user left
+     */
+    async leaveSession(sessionID) {
+        const { ok } = await request('/create-session', { method: 'PUT', body: { session_id: sessionID, action: 1 } });
+        return ok;
+    }
+
+    /**
+     * A function for the host to remove a player from their session
+     * @returns - Boolean, true if the player was removed
+     */
+    async removePlayerFromSession(player_id, sessionID) {
+        const { ok } = await request('/create-session', {
+            method: 'PUT',
+            body: { session_id: sessionID, player_id: player_id, action: 2 },
+        });
+        return ok;
+    }
+
+    /**
+     * A function to register a new user
+     * @returns - The new user's details, or null if registration failed (errors are shown to the user)
+     */
+    async registerUser(userName, emailID, pass) {
+        const { status, data } = await request('/register-user', {
+            method: 'POST',
+            body: { username: userName, email: emailID, password: pass },
+        });
+        if (status === 201) {
+            return data;
         }
-
-        // push data to api and return new id from api
-        return new Promise((resolve) => {
-            var responseCode = 0;
-            fetch('http://localhost:8000/api/create-session', requestOptions)
-                .then(function(response) {
-                    responseCode = response.status
-                    return response.json()
-                })
-                .then(function(data){
-                    if (responseCode === 201) { resolve({ id: data.id }) } 
-                    else if (responseCode === 401) {
-                        alert('YOU ARE LOGGED OUT')
-                        window.location.replace('http://localhost:3000/login-page')
-                    }
-                    else { resolve({ error: data.detail || 'Error creating session' }) } })
-                .catch(() => resolve({ error: 'Could not reach the server.' }))
-        });
+        alert(errorMessage(data, 'Registration failed.'));
+        return null;
     }
 
     /**
-     * A function to join a session for a user
-     * @param sessionID - The session id of the session the user is joining to
-     * @param username - The username of the user that is joining
-     * @returns - Boolean, true if user joins successfully and false otherwise
+     * A function to log in
+     * @returns - The access/refresh tokens, or null if login failed (errors are shown to the user)
      */
-    joinSession(sessionID) {
-        const requestOptions = {
-            method: 'put',
-            headers: { 
-              'Accept': 'application/json',
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-            },
-            body: JSON.stringify({ session_id: sessionID,
-                                   action:    0 })
-        };
-  
-        return new Promise((resolve) => {
-            var responseCode = 0;
-            fetch('http://localhost:8000/api/create-session', requestOptions)
-                .then(function(response) {
-                    responseCode = response.status
-                })
-                .then(function(){
-                    if (responseCode === 200) { resolve(true) }
-                    else if (responseCode === 401) {
-                        alert('YOU ARE LOGGED OUT')
-                        window.location.replace('http://localhost:3000/login-page')
-                    } 
-                    else { resolve(false) } })
+    async loginUser(userName, pass) {
+        const { status, data } = await request('/token', {
+            method: 'POST',
+            body: { username: userName, password: pass },
+            redirectOn401: false,
         });
-    }
-
-    /**
-     * A function to leave a session for a user
-     * @param sessionID - The session id of the session the user is leaving from
-     * @param username - The username of the user that is leaving
-     */
-    leaveSession(sessionID) {
-        const requestOptions = {
-            method: 'put',
-            headers: { 
-              'Accept': 'application/json',
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-            },
-            body: JSON.stringify({ session_id: sessionID,
-                                   action:    1 })
-        };
-  
-        return new Promise((resolve) => {
-            var responseCode = 0;
-            fetch('http://localhost:8000/api/create-session', requestOptions)
-                .then(function(response) {
-                    responseCode = response.status
-                })
-                .then(function(){
-                    if (responseCode === 200) { resolve(true) }
-                    else if (responseCode === 401) {
-                        alert('YOU ARE LOGGED OUT')
-                        window.location.replace('http://localhost:3000/login-page')
-                    }  
-                    else { resolve(false) } })
-        });
-    }
-
-    removePlayerFromSession(player_id,sessionID){
-        const requestOptions = {
-            method: 'put',
-            headers: { 
-              'Accept': 'application/json',
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-            },
-            body: JSON.stringify({ session_id: sessionID,
-                                   player_id: player_id,
-                                   action:    2 })
-        };
-  
-        return new Promise((resolve) => {
-            var responseCode = 0;
-            fetch('http://localhost:8000/api/create-session', requestOptions)
-                .then(function(response) {
-                    responseCode = response.status
-                })
-                .then(function(){
-                    if (responseCode === 200) { resolve(true) }
-                    else if (responseCode === 401) {
-                        alert('YOU ARE LOGGED OUT')
-                        window.location.replace('http://localhost:3000/login-page')
-                    } 
-                    else { resolve(false) } })
-        });
-    }
-
-    /**
-     * A function to invite another player to the session
-     * @param sessionID - The session id of the session the user is leaving from
-     * @param username - The username of the user that is leaving
-     * @returns - Boolean, true if the invite is successfully and false otherwise
-     */
-    invite(username, sessionID) {
-
-        // mocking invite error unless username is true
-        if (username==="true") {
-            return true;
-        } else {
-            return false;
+        if (status === 200) {
+            return data;
         }
+        alert(status === 401 ? 'Authentication Failed! Invalid login details.' : errorMessage(data, 'Something went wrong. Please try again.'));
+        return null;
     }
 
-    registerUser(userName, emailID, pass) {
-        const requestOptions = {
-            method: 'post',
-            headers: { 
-              'Accept': 'application/json',
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ username: userName,
-                                   email:    emailID,
-                                   password: pass })
-        };
-  
-        return new Promise((resolve) => {
-            var responseCode = 0;
-            fetch('http://localhost:8000/api/register-user', requestOptions)
-                .then(function(response) {
-                    responseCode = response.status
-                    return response.json();
-                })
-                .then(function(data){
-                    if (responseCode !== 201) {
-                        if (data.username) { alert(data.username); }
-                        if (data.email) { alert(data.email); }
-                        if (data.password) { alert(data.password.join('\n')); }
-                    } else if (responseCode === 401) {
-                        alert('YOU ARE LOGGED OUT')
-                        window.location.replace('http://localhost:3000/login-page')
-                    } 
-                    else { resolve(data) } })
-        });
-
-    }
-
-    loginUser(userName, pass) {
-        const requestOptions = {
-            method: 'post',
-            headers: { 
-              'Accept': 'application/json',
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ username: userName,
-                                   password: pass })
-        };
-  
-        return new Promise((resolve) => {
-            var responseCode = 0;
-            fetch('http://localhost:8000/api/token', requestOptions)
-                .then(function(response) {
-                    responseCode = response.status
-                    return response.json();
-                })
-                .then(function(data){
-                    if (responseCode === 401) {
-                        alert("Authentication Failed! Invalid login details.")
-                    } else if (responseCode === 200) { resolve(data) } 
-                    else { alert("Something went wrong. Are you already logged in?") } })
-        });
-    }
-
-    currentUserCheck() {
-        const requestOptions = {
-            method: 'get',
-            headers: { 
-              'Accept': 'application/json',
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-            },
-        };
-
-        return new Promise((resolve) => {
-            var responseCode = 0;
-            fetch('http://localhost:8000/api/user-check', requestOptions)
-                .then(function(response) {
-                    responseCode = response.status
-                    return response.json()
-                })
-                .then(function(data){
-                    if (responseCode === 200) { resolve(data.username) }
-                    else { resolve(false) } })
-                });
+    /**
+     * A function to check who is logged in
+     * @returns - The username, or false if not logged in
+     */
+    async currentUserCheck() {
+        const { status, data } = await request('/user-check', { redirectOn401: false });
+        return status === 200 ? data.username : false;
     }
 
     logoutUser() {
@@ -372,357 +223,121 @@ export class APIOnline {
         localStorage.removeItem('current_user');
     }
 
-    getForums(){
-        return new Promise((resolve) => {
-            fetch('http://localhost:8000/api/get-forums')
-                .then(function(response) {
-                    return response.json()
-                })
-                .then(function(data) { 
-                    console.log(data)
-                    resolve(data) 
-                })
-        });
+    /**
+     * A function to get all forums with their posts
+     * @returns - A list of forums (empty if they couldn't be loaded)
+     */
+    async getForums() {
+        const { ok, data } = await request('/get-forums');
+        return ok ? data : [];
     }
 
+    /**
+     * A function to get one forum by its tag
+     * @returns - The forum, or null if there is no forum with that tag
+     */
     async getForum(name) {
-
-        // filter the sessions for matching id
-        var forums = await this.getForums()
-        console.log(name)
-        let forum = forums.filter(forums => {
-            return forums.tag === name
-        })
-
-        // if no match, return null
-        if (forum === undefined) {
-            return null;
-        }
-
-        // return the first (only) element
-        return forum[0];
+        const forums = await this.getForums();
+        return forums.find(forum => forum.tag === name) || null;
     }
 
-    
-    makePost([forumTag,text]) {
-        const requestOptions = {
-            method: 'post',
-            headers: { 
-              'Accept': 'application/json',
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-            },
-            body: JSON.stringify({ tag:  forumTag,
-                                   text: text })
-        };
-  
-        return new Promise((resolve) => {
-            var responseCode = 0;
-            fetch('http://localhost:8000/api/forum', requestOptions)
-                .then(function(response) {
-                    responseCode = response.status
-                })
-                .then(function(){
-                    if (responseCode === 201) {
-                        resolve(true)
-                    } 
-                    else if (responseCode === 401) {
-                        alert('YOU ARE LOGGED OUT')
-                        window.location.replace('http://localhost:3000/login-page')
-                    }
-                    else { resolve(false) } })
-        });
+    /**
+     * A function to post in a forum
+     * @returns - Boolean, true if the post was created
+     */
+    async makePost([forumTag, text]) {
+        const { status } = await request('/forum', { method: 'POST', body: { tag: forumTag, text: text } });
+        return status === 201;
     }
 
-    reportPost(post_id){
-        const requestOptions = {
-            method: 'put',
-            headers: { 
-              'Accept': 'application/json',
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-            },
-            body: JSON.stringify({ post_id: post_id
-                                   })
-        };
-  
-        return new Promise((resolve) => {
-            var responseCode = 0;
-            fetch('http://localhost:8000/api/forum-post', requestOptions)
-                .then(function(response) {
-                    responseCode = response.status
-                })
-                .then(function(){
-                    if (responseCode === 200) {
-                        resolve(true)
-                    } 
-                    else if (responseCode === 401) {
-                        alert('YOU ARE LOGGED OUT')
-                        window.location.replace('http://localhost:3000/login-page')
-                    }
-                    else { 
-                        alert("Please login to report!")
-                        resolve(false) 
-                    } })
-        });
+    /**
+     * A function to report a forum post for admin review
+     * @returns - Boolean, true if the report was recorded
+     */
+    async reportPost(post_id) {
+        const { ok } = await request('/forum-post', { method: 'PUT', body: { post_id: post_id } });
+        return ok;
     }
 
-    sendFriendRequest(receiver) {
-        const requestOptions = {
-            method: 'post',
-            headers: { 
-              'Accept': 'application/json',
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-            },
-            body: JSON.stringify({ rec_username: receiver})
-        };
-  
-        return new Promise((resolve) => {
-            var responseCode = 0;
-            fetch('http://localhost:8000/api/friend-requests', requestOptions)
-                .then(function(response) {
-                    responseCode = response.status
-                })
-                .then(function(){
-                    if (responseCode === 200) { resolve(true) }
-                    else if (responseCode === 401) {
-                        alert('YOU ARE LOGGED OUT')
-                        window.location.replace('http://localhost:3000/login-page')
-                    }
-                    else { resolve(false) } 
-                })
-        });
+    /**
+     * A function to send a friend request
+     * @returns - Boolean, true if the request was sent
+     */
+    async sendFriendRequest(receiver) {
+        const { ok } = await request('/friend-requests', { method: 'POST', body: { rec_username: receiver } });
+        return ok;
     }
 
-    getFriendRequests() {
-        const requestOptions = {
-            method: 'get',
-            headers: { 
-              'Accept': 'application/json',
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-            },
-        };
-
-        return new Promise((resolve) => {
-            var responseCode = 0;
-            fetch('http://localhost:8000/api/friend-requests', requestOptions)
-                .then(function(response) {
-                    responseCode = response.status
-                    return response.json()
-                })
-                .then(function(data){
-                    if (responseCode === 200) { resolve(data) }
-                    else if (responseCode === 401) {
-                        alert('YOU ARE LOGGED OUT')
-                        window.location.replace('http://localhost:3000/login-page')
-                    }
-                })
-        });
+    /**
+     * A function to get the friend requests sent to the current user
+     * @returns - A list of { username }
+     */
+    async getFriendRequests() {
+        const { ok, data } = await request('/friend-requests');
+        return ok ? data : [];
     }
 
-    getFriends() {
-        const requestOptions = {
-            method: 'get',
-            headers: { 
-              'Accept': 'application/json',
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-            },
-        };
-
-        return new Promise((resolve) => {
-            var responseCode = 0;
-            fetch('http://localhost:8000/api/friends', requestOptions)
-                .then(function(response) {
-                    responseCode = response.status
-                    return response.json()
-                })
-                .then(function(data){
-                    if (responseCode === 200) { resolve(data) }
-                    else if (responseCode === 401) {
-                        alert('YOU ARE LOGGED OUT')
-                        window.location.replace('http://localhost:3000/login-page')
-                    }
-                })
-        });
+    /**
+     * A function to get the current user's friends
+     * @returns - A list of { username }
+     */
+    async getFriends() {
+        const { ok, data } = await request('/friends');
+        return ok ? data : [];
     }
 
-    acceptFriendRequest(username) {
-        const requestOptions = {
-            method: 'put',
-            headers: { 
-              'Accept': 'application/json',
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-            },
-            body: JSON.stringify({  friend_username: username,
-                                    action: 0                                   
-                                })
-        };
-
-        return new Promise((resolve) => {
-            var responseCode = 0;
-            fetch('http://localhost:8000/api/friend-requests', requestOptions)
-                .then(function(response) {
-                    responseCode = response.status
-                })
-                .then(function(){
-                    if (responseCode === 200) { resolve(true) }
-                    else if (responseCode === 401) {
-                        alert('YOU ARE LOGGED OUT')
-                        window.location.replace('http://localhost:3000/login-page')
-                    }
-                    else { resolve(false) }
-                })
-        });
+    /**
+     * A function to accept a friend request
+     * @returns - Boolean, true if accepted
+     */
+    async acceptFriendRequest(username) {
+        const { ok } = await request('/friend-requests', { method: 'PUT', body: { friend_username: username, action: 0 } });
+        return ok;
     }
 
-    declineFriendRequest(username) {
-        const requestOptions = {
-            method: 'put',
-            headers: { 
-              'Accept': 'application/json',
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-            },
-            body: JSON.stringify({  friend_username: username,
-                                    action: 1                                   
-                                })
-        };
-
-        return new Promise((resolve) => {
-            var responseCode = 0;
-            fetch('http://localhost:8000/api/friend-requests', requestOptions)
-                .then(function(response) {
-                    responseCode = response.status
-                })
-                .then(function(){
-                    if (responseCode === 200) { resolve(true) }
-                    else if (responseCode === 401) {
-                        alert('YOU ARE LOGGED OUT')
-                        window.location.replace('http://localhost:3000/login-page')
-                    }
-                    else { resolve(false) }
-                })
-        });
+    /**
+     * A function to decline a friend request
+     * @returns - Boolean, true if declined
+     */
+    async declineFriendRequest(username) {
+        const { ok } = await request('/friend-requests', { method: 'PUT', body: { friend_username: username, action: 1 } });
+        return ok;
     }
 
-    removeFriend(username) {
-        const requestOptions = {
-            method: 'put',
-            headers: { 
-              'Accept': 'application/json',
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-            },
-            body: JSON.stringify({ friend_username: username })
-        };
-
-        return new Promise((resolve) => {
-            var responseCode = 0;
-            fetch('http://localhost:8000/api/friends', requestOptions)
-                .then(function(response) {
-                    responseCode = response.status
-                })
-                .then(function(){
-                    if (responseCode === 200) { resolve(true) }
-                    else if (responseCode === 401) {
-                        alert('YOU ARE LOGGED OUT')
-                        window.location.replace('http://localhost:3000/login-page')
-                    }
-                    else { resolve(false) }
-                })
-        });
+    /**
+     * A function to remove a friend
+     * @returns - Boolean, true if removed
+     */
+    async removeFriend(username) {
+        const { ok } = await request('/friends', { method: 'PUT', body: { friend_username: username } });
+        return ok;
     }
 
-    getUserBio() {
-        const requestOptions = {
-            method: 'get',
-            headers: { 
-              'Accept': 'application/json',
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-            },
-        };
-
-        return new Promise((resolve) => {
-            var responseCode = 0;
-            fetch('http://localhost:8000/api/profile-bio', requestOptions)
-                .then(function(response) {
-                    responseCode = response.status
-                    return response.json()
-                })
-                .then(function(data){
-                    if (responseCode === 200) { resolve(data) }
-                    else if (responseCode === 401) {
-                        alert('YOU ARE LOGGED OUT')
-                        window.location.replace('http://localhost:3000/login-page')
-                    }
-                    else { resolve(false) }
-                })
-        });
+    /**
+     * A function to get the current user's bio
+     * @returns - { bio }, or false on error
+     */
+    async getUserBio() {
+        const { ok, data } = await request('/profile-bio');
+        return ok ? data : false;
     }
 
-    updateUserBio(profile_bio) {
-        const requestOptions = {
-            method: 'post',
-            headers: { 
-              'Accept': 'application/json',
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-            },
-            body: JSON.stringify({ bio: profile_bio })
-        };
-
-        return new Promise((resolve) => {
-            var responseCode = 0;
-            fetch('http://localhost:8000/api/profile-bio', requestOptions)
-                .then(function(response) {
-                    responseCode = response.status
-                })
-                .then(function(){
-                    if (responseCode === 200) { resolve(true) }
-                    else if (responseCode === 401) {
-                        alert('YOU ARE LOGGED OUT')
-                        window.location.replace('http://localhost:3000/login-page')
-                    }
-                    else { resolve(false) }
-                })
-        });
+    /**
+     * A function to update the current user's bio
+     * @returns - Boolean, true if saved
+     */
+    async updateUserBio(profile_bio) {
+        const { ok } = await request('/profile-bio', { method: 'POST', body: { bio: profile_bio } });
+        return ok;
     }
 
     /**
      * A function to get the current user's gamer tags
      * @returns An object of platform -> tag (empty strings for unset platforms), or false on error
      */
-    getGamerTags() {
-        const requestOptions = {
-            method: 'get',
-            headers: { 
-              'Accept': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-            },
-        };
-
-        return new Promise((resolve) => {
-            var responseCode = 0;
-            fetch('http://localhost:8000/api/gamer-tags', requestOptions)
-                .then(function(response) {
-                    responseCode = response.status
-                    return response.json()
-                })
-                .then(function(data){
-                    if (responseCode === 200) { resolve(data) }
-                    else if (responseCode === 401) {
-                        alert('YOU ARE LOGGED OUT')
-                        window.location.replace('http://localhost:3000/login-page')
-                    }
-                    else { resolve(false) }
-                })
-                .catch(() => resolve(false))
-        });
+    async getGamerTags() {
+        const { ok, data } = await request('/gamer-tags');
+        return ok ? data : false;
     }
 
     /**
@@ -730,34 +345,9 @@ export class APIOnline {
      * @param tags - An object of platform -> tag
      * @returns null on success, otherwise an error message
      */
-    updateGamerTags(tags) {
-        const requestOptions = {
-            method: 'put',
-            headers: { 
-              'Accept': 'application/json',
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-            },
-            body: JSON.stringify(tags)
-        };
-
-        return new Promise((resolve) => {
-            var responseCode = 0;
-            fetch('http://localhost:8000/api/gamer-tags', requestOptions)
-                .then(function(response) {
-                    responseCode = response.status
-                    return response.json()
-                })
-                .then(function(data){
-                    if (responseCode === 200) { resolve(null) }
-                    else if (responseCode === 401) {
-                        alert('YOU ARE LOGGED OUT')
-                        window.location.replace('http://localhost:3000/login-page')
-                    }
-                    else { resolve(Object.values(data).flat().join(' ') || 'Error') }
-                })
-                .catch(() => resolve('Could not reach the server.'))
-        });
+    async updateGamerTags(tags) {
+        const { ok, data } = await request('/gamer-tags', { method: 'PUT', body: tags });
+        return ok ? null : errorMessage(data, 'Error');
     }
 
     /**
@@ -766,33 +356,13 @@ export class APIOnline {
      * @param afterID - Only return messages newer than this message id (omit for the latest messages)
      * @returns { messages } on success, { error, status } otherwise
      */
-    getChatMessages(sessionID, afterID) {
-        const requestOptions = {
-            method: 'get',
-            headers: { 
-              'Accept': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-            },
-        };
+    async getChatMessages(sessionID, afterID) {
         const query = afterID ? `?after=${afterID}` : '';
-
-        return new Promise((resolve) => {
-            var responseCode = 0;
-            fetch(`http://localhost:8000/api/session-chat/${sessionID}${query}`, requestOptions)
-                .then(function(response) {
-                    responseCode = response.status
-                    return response.json()
-                })
-                .then(function(data){
-                    if (responseCode === 200) { resolve({ messages: data }) }
-                    else if (responseCode === 401) {
-                        alert('YOU ARE LOGGED OUT')
-                        window.location.replace('http://localhost:3000/login-page')
-                    }
-                    else { resolve({ error: data.detail || 'Could not load messages.', status: responseCode }) }
-                })
-                .catch(() => resolve({ error: 'Could not reach the server.', status: 0 }))
-        });
+        const { status, data } = await request(`/session-chat/${sessionID}${query}`);
+        if (status === 200) {
+            return { messages: data };
+        }
+        return { error: errorMessage(data, 'Could not load messages.'), status };
     }
 
     /**
@@ -801,142 +371,47 @@ export class APIOnline {
      * @param text - The message text
      * @returns { message } on success, { error } otherwise
      */
-    sendChatMessage(sessionID, text) {
-        const requestOptions = {
-            method: 'post',
-            headers: { 
-              'Accept': 'application/json',
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-            },
-            body: JSON.stringify({ text: text })
-        };
-
-        return new Promise((resolve) => {
-            var responseCode = 0;
-            fetch(`http://localhost:8000/api/session-chat/${sessionID}`, requestOptions)
-                .then(function(response) {
-                    responseCode = response.status
-                    return response.json()
-                })
-                .then(function(data){
-                    if (responseCode === 201) { resolve({ message: data }) }
-                    else if (responseCode === 401) {
-                        alert('YOU ARE LOGGED OUT')
-                        window.location.replace('http://localhost:3000/login-page')
-                    }
-                    else { resolve({ error: data.detail || Object.values(data).flat().join(' ') || 'Could not send.' }) }
-                })
-                .catch(() => resolve({ error: 'Could not reach the server.' }))
-        });
+    async sendChatMessage(sessionID, text) {
+        const { status, data } = await request(`/session-chat/${sessionID}`, { method: 'POST', body: { text: text } });
+        return status === 201 ? { message: data } : { error: errorMessage(data, 'Could not send.') };
     }
 
     /**
      * A function to report a room chat message for admin review
      * @returns - Boolean, true if the report was recorded
      */
-    reportChatMessage(sessionID, messageID) {
-        const requestOptions = {
-            method: 'post',
-            headers: { 
-              'Accept': 'application/json',
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-            },
-            body: JSON.stringify({ message_id: messageID })
-        };
-
-        return fetch(`http://localhost:8000/api/session-chat/${sessionID}/report`, requestOptions)
-            .then(response => response.status === 200)
-            .catch(() => false);
+    async reportChatMessage(sessionID, messageID) {
+        const { ok } = await request(`/session-chat/${sessionID}/report`, { method: 'POST', body: { message_id: messageID } });
+        return ok;
     }
 
-    getUserImage() {
-        const requestOptions = {
-            method: 'get',
-            headers: { 
-              'Accept': 'application/json',
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-            },
-        };
-
-        return new Promise((resolve) => {
-            var responseCode = 0;
-            fetch('http://localhost:8000/api/profile-image', requestOptions)
-                .then(function(response) {
-                    responseCode = response.status
-                    return response.json()
-                })
-                .then(function(data){
-                    if (responseCode === 200) { resolve(data) }
-                    else if (responseCode === 401) {
-                        alert('YOU ARE LOGGED OUT')
-                        window.location.replace('http://localhost:3000/login-page')
-                    }
-                    else { resolve(false) }
-                })
-        });
+    /**
+     * A function to get the current user's profile picture URL
+     * @returns - { image_url }, or false on error
+     */
+    async getUserImage() {
+        const { ok, data } = await request('/profile-image');
+        return ok ? data : false;
     }
 
-    updateUserImage(profile_image) {
-        const requestOptions = {
-            method: 'post',
-            headers: { 
-              'Accept': 'application/json',
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-            },
-            body: JSON.stringify({ image_url: profile_image })
-        };
-
-        return new Promise((resolve) => {
-            var responseCode = 0;
-            fetch('http://localhost:8000/api/profile-image', requestOptions)
-                .then(function(response) {
-                    responseCode = response.status
-                })
-                .then(function(){
-                    if (responseCode === 200) { resolve(true) }
-                    else if (responseCode === 401) {
-                        alert('YOU ARE LOGGED OUT')
-                        window.location.replace('http://localhost:3000/login-page')
-                    }
-                    else { resolve(false) }
-                })
-        });
+    /**
+     * A function to update the current user's profile picture URL
+     * @returns - Boolean, true if saved
+     */
+    async updateUserImage(profile_image) {
+        const { ok } = await request('/profile-image', { method: 'POST', body: { image_url: profile_image } });
+        return ok;
     }
 
     /**
      * Change the logged-in user's password
      * @returns null on success, otherwise an error message
      */
-    updatePassword(oldPassword, newPassword) {
-        const requestOptions = {
-            method: 'post',
-            headers: { 
-              'Accept': 'application/json',
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-            },
-            body: JSON.stringify({ old_password: oldPassword, new_password: newPassword })
-        };
-
-        return new Promise((resolve) => {
-            var responseCode = 0;
-            fetch('http://localhost:8000/api/update-password', requestOptions)
-                .then(function(response) {
-                    responseCode = response.status
-                    return response.json()
-                })
-                .then(function(data){
-                    if (responseCode === 200) { resolve(null) }
-                    else if (responseCode === 401) {
-                        alert('YOU ARE LOGGED OUT')
-                        window.location.replace('http://localhost:3000/login-page')
-                    }
-                    else { resolve(Object.values(data).flat().join(' ') || 'Error') }
-                })
+    async updatePassword(oldPassword, newPassword) {
+        const { ok, data } = await request('/update-password', {
+            method: 'POST',
+            body: { old_password: oldPassword, new_password: newPassword },
         });
+        return ok ? null : errorMessage(data, 'Error');
     }
 }

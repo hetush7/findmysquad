@@ -99,7 +99,13 @@ function RoomPage() {
 
   // fetch the latest session data; if it no longer exists, leave the page
   const refreshSession = React.useCallback(async () => {
-    const data = await api.getSession(sessionID);
+    let data;
+    try {
+      data = await api.getSession(sessionID);
+    } catch {
+      // temporary network/server problem: keep showing what we have; the periodic refresh retries
+      return null;
+    }
     if (!data) {
       // a room that was open here has since been closed by its host
       history.push(hasLoadedRef.current ? "/sessions-page" : "/error-404");

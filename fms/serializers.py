@@ -127,6 +127,16 @@ class SessionSerializer(serializers.ModelSerializer):
 	def get_players(self, obj):
 		return PlayerSerializer(obj.players, many=True).data
 
+	def to_representation(self, obj):
+		# Join instructions and gamer tags are only for squad members (context['private'])
+		data = super().to_representation(obj)
+		if not self.context.get('private'):
+			data.pop('joinDescription')
+			data.pop('hostGamerTags')
+			for player in data['players']:
+				player.pop('gamerTags')
+		return data
+
 class GameSerializer(serializers.ModelSerializer):
 	id                 = serializers.SerializerMethodField('get_id')
 	gameShortName      = serializers.SerializerMethodField('get_game_short_name')
@@ -215,3 +225,26 @@ class ChatMessageSerializer(serializers.ModelSerializer):
 		if not value:
 			raise serializers.ValidationError('Message cannot be empty.')
 		return value
+
+MAX_SQUAD_SIZE = 10  # players who can join a room, not counting the host
+
+class CreateSessionSerializer(serializers.Serializer):
+	game_id      = serializers.PrimaryKeyRelatedField(queryset=Game.objects.all(), source='game')
+	max_players  = serializers.IntegerField(min_value=1, max_value=MAX_SQUAD_SIZE)
+	session_name = serializers.CharField(max_length=100)
+	description  = serializers.CharField(max_length=300)
+	instructions = serializers.CharField(max_length=300)
+	min_rank     = serializers.CharField(max_length=50, required=False, allow_blank=True, default='')
+	max_rank     = serializers.CharField(max_length=50, required=False, allow_blank=True, default='')
+
+	def validate(self, attrs):
+		error = attrs['game'].rank_range_error(attrs['min_rank'], attrs['max_rank'])
+		if error:
+			raise serializers.ValidationError(error)
+		return attrs
+
+def first_error(errors):
+	# Flatten DRF serializer errors into one readable message, e.g. "max_players: Ensure this value is ..."
+	field, messages = next(iter(errors.items()))
+	message = messages[0] if isinstance(messages, list) else messages
+	return str(message) if field == 'non_field_errors' else field + ': ' + str(message)

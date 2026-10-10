@@ -60,17 +60,25 @@ function RegisterPage() {
         inputField.password) {
         
         // Register User 
-        await api.registerUser(inputField.username, inputField.email, inputField.password);
+        const registered = await api.registerUser(inputField.username, inputField.email, inputField.password);
+        if (!registered) {
+          return;
+        }
 
         // Login User 
         const data = await api.loginUser(inputField.username, inputField.password);
+        if (!data) {
+          return;
+        }
         localStorage.setItem('access_token', data.access)
 
         let result = await api.currentUserCheck();
-        localStorage.setItem('current_user', result)
+        if (result) {
+          localStorage.setItem('current_user', result)
+        }
 
         // Redirect to Sessions Page:
-        window.location.replace('http://localhost:3000/sessions-page')
+        window.location.replace('/sessions-page')
     } else {
       alert("Some fields are missing.");
     }

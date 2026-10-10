@@ -1,6 +1,8 @@
 from django.shortcuts 			import render
 from django.contrib.auth 		import authenticate, login, password_validation
 from django.core.exceptions 	import ValidationError
+from django.core.validators 	import URLValidator
+from django.db.models 			import Q
 from django.shortcuts 			import get_object_or_404
 from django.utils 				import timezone
 from datetime 					import timedelta
@@ -51,113 +53,102 @@ class GetSessionsView(APIView):
 
 		return Response(response_data, status=status.HTTP_200_OK)
 
-class SessionView(APIView):
+class SessionDetailView(APIView):
+	permission_classes = (permissions.AllowAny,)
 	serializer_class = SessionSerializer
-		
+
+	# Get one session; squad members also get the join instructions and gamer tags
+	def get(self, request, session_id, format=None):
+		session = get_object_or_404(
+			GameSession.objects.select_related('game', 'created_by__gamer_tags').prefetch_related('players__gamer_tags'),
+			id=session_id
+		)
+		private = request.user.is_authenticated and session.has_member(request.user)
+		response_data = self.serializer_class(session, context={'private': private}).data
+		return Response(response_data, status=status.HTTP_200_OK)
+
+def bad_request(message):
+	return Response({'detail': message}, status=status.HTTP_400_BAD_REQUEST)
+
+def int_or_none(value):
+	try:
+		return int(value)
+	except (TypeError, ValueError):
+		return None
+
+def in_any_session(user):
+	# Hosting a room or playing in one
+	return GameSession.objects.filter(created_by=user).exists() or GameSession.objects.filter(players=user).exists()
+
+class SessionView(APIView):
+	JOIN, LEAVE, KICK = 0, 1, 2
+
+	# Create Session
 	def post(self, request, format=None):
-		current_user = request.user
+		if in_any_session(request.user):
+			return bad_request('You are already in a room. Leave it before creating a new one.')
 
-		if current_user:
-			session_exists = GameSession.objects.filter(created_by=current_user).exists()
+		serializer = CreateSessionSerializer(data=request.data)
+		if not serializer.is_valid():
+			return bad_request(first_error(serializer.errors))
 
-			# if user already has a session
-			if session_exists:
-				return Response({}, status=status.HTTP_400_BAD_REQUEST)
+		new_session = GameSession.objects.create(
+			created_by   = request.user,
+			game         = serializer.validated_data['game'],
+			max_players  = serializer.validated_data['max_players'],
+			session_name = serializer.validated_data['session_name'],
+			description  = serializer.validated_data['description'],
+			instructions = serializer.validated_data['instructions'],
+			min_rank     = serializer.validated_data['min_rank'],
+			max_rank     = serializer.validated_data['max_rank'],
+		)
+		return Response({'id': new_session.id}, status=status.HTTP_201_CREATED)
 
-			# if user is part of another session 
-			all_sessions = GameSession.objects.all()
-			for game_session in all_sessions:
-				if current_user in game_session.players.all():
-					return Response({}, status=status.HTTP_400_BAD_REQUEST)
-
-			game = Game.objects.get(id=request.data['game_id'])
-
-			# optional rank range, e.g. Gold to Diamond
-			min_rank = (request.data.get('min_rank') or '').strip()
-			max_rank = (request.data.get('max_rank') or '').strip()
-			rank_error = game.rank_range_error(min_rank, max_rank)
-			if rank_error:
-				return Response({'detail': rank_error}, status=status.HTTP_400_BAD_REQUEST)
-
-			new_session = GameSession(
-				created_by   = current_user,
-				game         = game,
-				max_players  = request.data['max_players'],
-				session_name = request.data['session_name'],
-				description  = request.data['description'],
-				instructions = request.data['instructions'],
-				min_rank     = min_rank,
-				max_rank     = max_rank,
-			)
-			new_session.save()
-			return Response({'id': new_session.id}, status=status.HTTP_201_CREATED)
-		else:
-			return Response({}, status=status.HTTP_401_UNAUTHORIZED)
-
+	# Join, leave or kick, depending on 'action'
 	def put(self, request, format=None):
 		current_user = request.user
+		action = int_or_none(request.data.get('action'))
+		session_id = int_or_none(request.data.get('session_id'))
+		if session_id is None:
+			return bad_request('session_id is required.')
+		current_session = get_object_or_404(GameSession, id=session_id)
 
-		if current_user:
-			action = request.data['action']
-			current_session = GameSession.objects.get(id=request.data['session_id'])
+		if action == self.JOIN:
+			if in_any_session(current_user):
+				return bad_request('You are already in a room.')
+			if current_session.is_full():
+				return bad_request('This room is full.')
+			current_session.players.add(current_user)
+			return Response({}, status=status.HTTP_200_OK)
 
-			if action == 0:
-				# Join Session
-				session_exists = GameSession.objects.filter(created_by=current_user).exists()
-				
-				# if user already has a session
-				if session_exists:
-					return Response({}, status=status.HTTP_400_BAD_REQUEST)
-				
-				if current_session.is_full():
-					return Response({}, status=status.HTTP_400_BAD_REQUEST)
-
-				# if user is part of another session 
-				all_sessions = GameSession.objects.all()
-				for game_session in all_sessions:
-					if current_user in game_session.players.all():
-						return Response({}, status=status.HTTP_400_BAD_REQUEST)
-
-				current_session.players.add(current_user)
-				current_session.save()
+		if action == self.LEAVE:
+			if current_session.created_by == current_user:
+				# the host leaving closes the room
+				current_session.delete()
 				return Response({}, status=status.HTTP_200_OK)
+			if not current_session.players.filter(id=current_user.id).exists():
+				return bad_request('You are not in this room.')
+			current_session.players.remove(current_user)
+			return Response({}, status=status.HTTP_200_OK)
 
-			elif action == 1:
-				# Leave Session
-				if current_session.created_by.username == current_user.username:
-					# Host Leaving
-					print('SESSION DELETED')
-					current_session.delete()
-					return Response({}, status=status.HTTP_200_OK)
+		if action == self.KICK:
+			if current_session.created_by != current_user:
+				return Response({}, status=status.HTTP_403_FORBIDDEN)
+			player = current_session.players.filter(id=int_or_none(request.data.get('player_id'))).first()
+			if player is None:
+				return bad_request('That player is not in this room.')
+			current_session.players.remove(player)
+			return Response({}, status=status.HTTP_200_OK)
 
-				current_session.players.remove(current_user)
-				current_session.save()
-				return Response({}, status=status.HTTP_200_OK)
-			
-			elif action == 2:
-				# Kick From Session (host only)
-				if current_session.created_by != current_user:
-					return Response({}, status=status.HTTP_403_FORBIDDEN)
-
-				user_to_kick = User.objects.get(id=request.data['player_id'])
-				current_session.players.remove(user_to_kick)
-				current_session.save()
-				return Response({}, status=status.HTTP_200_OK)
-
-		else:
-			# You are not logged in 
-			return Response({}, status=status.HTTP_401_UNAUTHORIZED)
+		return bad_request('action must be 0 (join), 1 (leave) or 2 (kick).')
 
 class GameInfoView(APIView):
 	permission_classes = (permissions.AllowAny,)
 	serializer_class = GameSerializer
 	
 	def get(self, request, format=None):
-		game_data = Game.objects.all()
-		if len(game_data) > 0:
-			serializer = self.serializer_class(game_data,many=True)
-			return Response(serializer.data,status=status.HTTP_200_OK)	
-		return Response({}, status=status.HTTP_400_BAD_REQUEST)
+		serializer = self.serializer_class(Game.objects.all(), many=True)
+		return Response(serializer.data, status=status.HTTP_200_OK)
 
 class GetForumsView(APIView):
 	permission_classes = (permissions.AllowAny,)
@@ -165,7 +156,7 @@ class GetForumsView(APIView):
 	
 	def get(self, request, format=None):
 		response_data = self.serializer_class(
-			Forum.objects.all(),
+			Forum.objects.prefetch_related('posts__posted_by'),
 			many=True
 		).data
 
@@ -174,248 +165,140 @@ class GetForumsView(APIView):
 class CreateForumView(APIView):
 	serializer_class = ForumSerializer
 	
+	# Create a post in a forum
 	def post(self, request, format=None):
-		current_user = request.user
-		current_forum= Forum.objects.get(tag=request.data['tag'])
+		current_forum = get_object_or_404(Forum, tag=request.data.get('tag', ''))
+		text = str(request.data.get('text', '')).strip()
+		if not text:
+			return bad_request('Post cannot be empty.')
+		if len(text) > ForumPost._meta.get_field('text').max_length:
+			return bad_request('Post must be 300 characters or fewer.')
 
-		if current_user:
-			new_post = ForumPost(
-				posted_by   = current_user,
-				text  		= request.data['text'],
-			)
-			new_post.save()
-			current_forum.posts.add(new_post)
-			current_forum.save()
-			return Response({'tag': current_forum.tag}, status=status.HTTP_201_CREATED)
-		else:
-			return Response({}, status=status.HTTP_401_UNAUTHORIZED)
+		new_post = ForumPost.objects.create(posted_by=request.user, text=text)
+		current_forum.posts.add(new_post)
+		return Response({'tag': current_forum.tag}, status=status.HTTP_201_CREATED)
 
 class PostView(APIView):
 	serializer_class = PostSerializer
+
+	# Report a post for admin review
 	def put(self, request, format=None):
-		current_user = request.user
-
-		if current_user:
-			current_post = ForumPost.objects.get(id=request.data['post_id'])
-			current_post.reported = True
-			current_post.save()
-			return Response({}, status=status.HTTP_200_OK)
-
-		else:
-			# Not logged in 
-			return Response({}, status=status.HTTP_401_UNAUTHORIZED)
+		current_post = get_object_or_404(ForumPost, id=int_or_none(request.data.get('post_id')))
+		current_post.reported = True
+		current_post.save()
+		return Response({}, status=status.HTTP_200_OK)
 
 class FriendRequestsView(APIView):
-	
+	ACCEPT, DECLINE = 0, 1
+
 	# Get Friend Requests 
 	def get(self, request, format=None):
-		current_user = request.user
-
-		if current_user:
-			friend_reqs   = FriendRequests.objects.all()
-			response_list = []
-
-			for req in friend_reqs:
-				if req.receiver.username == current_user.username:
-					data_to_append = {'username': req.sender.username}
-					response_list.append(data_to_append)
-
-			return Response(response_list, status=status.HTTP_200_OK)
-		
-		else:
-			# Not logged in 
-			return Response({}, status=status.HTTP_401_UNAUTHORIZED)
+		requests = FriendRequests.objects.filter(receiver=request.user).select_related('sender')
+		return Response([{'username': req.sender.username} for req in requests], status=status.HTTP_200_OK)
 
 	# Send Friend Request 
 	def post(self, request, format=None):
-		current_user = request.user
+		current_user  = request.user
+		receiver_user = get_object_or_404(User, username=request.data.get('rec_username', ''))
 
-		if current_user:
-			receiver_user  = User.objects.get(username=request.data['rec_username'])
-			
-			req_check = FriendRequests.objects.filter(sender=current_user, receiver=receiver_user)
-			if req_check:
-				print('Request already sent.')
-				return Response({}, status=status.HTTP_400_BAD_REQUEST)
+		if receiver_user == current_user:
+			return bad_request("You can't send a friend request to yourself.")
+		if FriendRequests.objects.filter(sender=current_user, receiver=receiver_user).exists():
+			return bad_request('Request already sent.')
+		if are_friends(current_user, receiver_user):
+			return bad_request('Already friends.')
 
-			friend_check_1 = Friends.objects.filter(user=current_user, friend=receiver_user)
-			friend_check_2 = Friends.objects.filter(user=receiver_user, friend=current_user)
+		FriendRequests.objects.create(sender=current_user, receiver=receiver_user)
+		return Response({}, status=status.HTTP_200_OK)
 
-			if friend_check_1 or friend_check_2:
-				print('Already friends.')
-				return Response({}, status=status.HTTP_400_BAD_REQUEST)
-			
-			# Request sent 
-			new_friend_req = FriendRequests(sender=current_user, receiver=receiver_user)
-			new_friend_req.save()
-			return Response({}, status=status.HTTP_200_OK)
-
-		else:
-			# Not logged in 
-			return Response({}, status=status.HTTP_401_UNAUTHORIZED)
-
+	# Accept or decline a friend request
 	def put(self, request, format=None):
 		current_user = request.user
+		friend_user  = get_object_or_404(User, username=request.data.get('friend_username', ''))
+		action       = int_or_none(request.data.get('action'))
 
-		if current_user:
-			friend_user    = User.objects.get(username=request.data['friend_username'])
+		if action not in (self.ACCEPT, self.DECLINE):
+			return bad_request('action must be 0 (accept) or 1 (decline).')
+		if are_friends(current_user, friend_user):
+			return bad_request('Already friends.')
 
-			friend_check_1 = Friends.objects.filter(user=current_user, friend=friend_user)
-			friend_check_2 = Friends.objects.filter(user=friend_user, friend=current_user)
+		friend_req = get_object_or_404(FriendRequests, sender=friend_user, receiver=current_user)
+		friend_req.delete()
 
-			if friend_check_1 or friend_check_2:
-				print('Already friends.')
-				return Response({}, status=status.HTTP_400_BAD_REQUEST)
+		if action == self.ACCEPT:
+			Friends.objects.create(user=current_user, friend=friend_user)
 
-			action = request.data['action']
+		return Response({}, status=status.HTTP_200_OK)
 
-			friend_req = FriendRequests.objects.get(sender=friend_user, receiver=current_user)
-			friend_req.delete()
-
-			if action == 0:
-				# ACCEPT REQUEST: ADD FRIEND 
-				new_friends = Friends(user=current_user, friend=friend_user)
-				new_friends.save()
-			
-			if action == 1:
-				# DECLINE REQUEST: DO NOTHING 
-				pass 
-
-			return Response({}, status=status.HTTP_200_OK)
-		
-		else:
-			# Not logged in 
-			return Response({}, status=status.HTTP_401_UNAUTHORIZED)
+def are_friends(user, other):
+	return Friends.objects.filter(Q(user=user, friend=other) | Q(user=other, friend=user)).exists()
 
 class FriendsView(APIView):
 
 	# Get Friends
 	def get(self, request, format=None):
 		current_user = request.user
-
-		if current_user:
-			friends  = Friends.objects.all()
-			response_list = []
-
-			for f in friends:
-				if f.user.username == current_user.username:
-					data_to_append = {'username': f.friend.username}
-					response_list.append(data_to_append)
-				elif f.friend.username == current_user.username:
-					data_to_append = {'username': f.user.username}
-					response_list.append(data_to_append)
-
-			return Response(response_list, status=status.HTTP_200_OK)
-		
-		else:
-			# Not logged in 
-			return Response({}, status=status.HTTP_401_UNAUTHORIZED)
+		friendships  = Friends.objects.filter(Q(user=current_user) | Q(friend=current_user)).select_related('user', 'friend')
+		response_list = [
+			{'username': (f.friend if f.user == current_user else f.user).username}
+			for f in friendships
+		]
+		return Response(response_list, status=status.HTTP_200_OK)
 
 	# Delete Friend
 	def put(self, request, format=None):
 		current_user = request.user
+		friend_user  = get_object_or_404(User, username=request.data.get('friend_username', ''))
+		Friends.objects.filter(
+			Q(user=current_user, friend=friend_user) | Q(user=friend_user, friend=current_user)
+		).delete()
+		return Response({}, status=status.HTTP_200_OK)
 
-		if current_user:
-			friend_user  = User.objects.get(username=request.data['friend_username'])
-			
-			friend_check_1 = Friends.objects.filter(user=current_user, friend=friend_user)
-			friend_check_2 = Friends.objects.filter(user=friend_user, friend=current_user)
-
-			if friend_check_1:
-				friendship = Friends.objects.get(user=current_user, friend=friend_user)
-				friendship.delete()
-
-			if friend_check_2:
-				friendship = Friends.objects.get(user=friend_user, friend=current_user)
-				friendship.delete()
-			
-			return Response({}, status=status.HTTP_200_OK)
-
-		else:
-			# Not logged in 
-			return Response({}, status=status.HTTP_401_UNAUTHORIZED)
+def get_profile(user):
+	profile = ProfileBio.objects.filter(user=user).first()
+	if profile is None:
+		profile = ProfileBio.objects.create(user=user, bio=user.username + "'s bio")
+	return profile
 
 class ProfileBioView(APIView):
 	
 	# Get Bio 
 	def get(self, request, format=None):
-		current_user = request.user
-
-		if current_user:
-			bio_check    = ProfileBio.objects.filter(user=current_user)
-			profile_bio  = current_user.username + "'s bio"
-
-			if bio_check:
-				new_profile_bio =  ProfileBio.objects.get(user=current_user)
-			else:
-				new_profile_bio = ProfileBio(user=current_user, bio=profile_bio)
-				new_profile_bio.save()
-			
-			response_bio = {'bio': new_profile_bio.bio}
-			return Response(response_bio, status=status.HTTP_200_OK)
-
-		else:
-			# Not logged in 
-			return Response({}, status=status.HTTP_401_UNAUTHORIZED)
+		return Response({'bio': get_profile(request.user).bio}, status=status.HTTP_200_OK)
 
 	# Update Bio
 	def post(self, request, format=None):
-		current_user = request.user
+		bio = request.data.get('bio')
+		if not isinstance(bio, str):
+			return bad_request('bio is required.')
+		if len(bio) > ProfileBio._meta.get_field('bio').max_length:
+			return bad_request('Bio must be 300 characters or fewer.')
 
-		if current_user:
-			bio_check    = ProfileBio.objects.filter(user=current_user)
-
-			if bio_check:
-				profile_bio 	= ProfileBio.objects.get(user=current_user)
-				profile_bio.bio = request.data['bio'] 
-				profile_bio.save()
-			
-			return Response({}, status=status.HTTP_200_OK)
-
-		else:
-			# Not logged in 
-			return Response({}, status=status.HTTP_401_UNAUTHORIZED)
+		profile = get_profile(request.user)
+		profile.bio = bio
+		profile.save()
+		return Response({}, status=status.HTTP_200_OK)
 
 class ProfileImageView(APIView):
 	
 	# Get Image 
 	def get(self, request, format=None):
-		current_user = request.user
-
-		if current_user:
-			bio_check    = ProfileBio.objects.filter(user=current_user)
-			profile_bio  = current_user.username + "'s bio"
-
-			if bio_check:
-				new_profile_bio =  ProfileBio.objects.get(user=current_user)
-			else:
-				new_profile_bio = ProfileBio(user=current_user, bio=profile_bio)
-				new_profile_bio.save()
-			
-			response_bio = {'image_url': new_profile_bio.img_url}
-			return Response(response_bio, status=status.HTTP_200_OK)
-
-		else:
-			# Not logged in 
-			return Response({}, status=status.HTTP_401_UNAUTHORIZED)
+		return Response({'image_url': get_profile(request.user).img_url}, status=status.HTTP_200_OK)
 
 	# Update Image URL
 	def post(self, request, format=None):
-		current_user = request.user
+		image_url = str(request.data.get('image_url', '')).strip()
+		try:
+			URLValidator(schemes=['http', 'https'])(image_url)
+		except ValidationError:
+			return bad_request('Enter a valid image URL starting with http:// or https://.')
+		if len(image_url) > ProfileBio._meta.get_field('img_url').max_length:
+			return bad_request('Image URL is too long.')
 
-		if current_user:
-			bio_check    = ProfileBio.objects.filter(user=current_user)
-
-			if bio_check:
-				profile_bio 	= ProfileBio.objects.get(user=current_user)
-				profile_bio.img_url = request.data['image_url']
-				profile_bio.save()
-			
-			return Response({}, status=status.HTTP_200_OK)
-
-		else:
-			# Not logged in 
-			return Response({}, status=status.HTTP_401_UNAUTHORIZED)
+		profile = get_profile(request.user)
+		profile.img_url = image_url
+		profile.save()
+		return Response({}, status=status.HTTP_200_OK)
 
 class UpdatePasswordView(APIView):
 

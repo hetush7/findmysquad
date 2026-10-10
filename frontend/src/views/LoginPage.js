@@ -57,14 +57,18 @@ function LoginPage() {
         inputField.password) {
           // Login 
           const data = await api.loginUser(inputField.username, inputField.password);
+          if (!data) {
+            return;
+          }
           localStorage.setItem('access_token', data.access)
-          console.log(data.access)
-          
+
           const currUser = await api.currentUserCheck();
-          console.log(currUser)
-          
+          if (currUser) {
+            localStorage.setItem('current_user', currUser)
+          }
+
           // Redirect to Sessions Page:
-          window.location.replace('http://localhost:3000/sessions-page')
+          window.location.replace('/sessions-page')
 
     } else {
       alert("Some fields are missing.");

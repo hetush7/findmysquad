@@ -26,6 +26,8 @@ services:
     restart: always
     command : npm start
     container_name: front
+    environment:
+      - REACT_APP_API_URL=${REACT_APP_API_URL:-http://localhost:8000}
     build:
       context: ./frontend/
       dockerfile: Dockerfile

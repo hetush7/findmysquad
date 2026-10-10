@@ -67,7 +67,9 @@ function SessionsPage() {
   React.useEffect(() => {
     api.getGames().then(allGames => {
       setGames(allGames);
-      setFormGame(allGames[0].id);
+      if (allGames.length > 0) {
+        setFormGame(allGames[0].id);
+      }
     });
     api.getSessions([]).then(allSessions => setSessionsData(allSessions));
 

@@ -271,15 +271,17 @@ class GamerTagsTest(TestCase):
         resp = self.client.put('/api/gamer-tags', {'xbox': 'x' * 51}, format='json')
         self.assertEqual(resp.status_code, 400)
 
-    def test_tags_shown_in_sessions(self):
+    def test_tags_shown_to_squad_members(self):
         GamerTags.objects.create(user=self.host, steam='HostSteam')
         GamerTags.objects.create(user=self.player, psn='PlayerPSN')
-        session = self.client.get('/api/get-sessions').data[0]
+        self.login(self.player)
+        session = self.client.get(f'/api/session/{self.session.id}').data
         self.assertEqual(session['hostGamerTags'], {'steam': 'HostSteam'})
         self.assertEqual(session['players'][0]['gamerTags'], {'psn': 'PlayerPSN'})
 
     def test_sessions_without_tags(self):
-        session = self.client.get('/api/get-sessions').data[0]
+        self.login(self.host)
+        session = self.client.get(f'/api/session/{self.session.id}').data
         self.assertEqual(session['hostGamerTags'], {})
         self.assertEqual(session['players'][0]['gamerTags'], {})
 
@@ -429,3 +431,159 @@ class RankRangeTest(TestCase):
 
     def test_same_min_and_max(self):
         self.assertEqual(self.create(min_rank='Gold', max_rank='Gold').status_code, 201)
+
+
+
+#Testing that join instructions and gamer tags are only shown to squad members
+class SessionPrivacyTest(TestCase):
+
+    def setUp(self):
+        self.client = APIClient()
+        self.host = User.objects.create_user(username='host', password='1X<ISRUkw+tuK')
+        self.player = User.objects.create_user(username='player', password='1X<ISRUkw+tuK')
+        self.outsider = User.objects.create_user(username='outsider', password='1X<ISRUkw+tuK')
+        GamerTags.objects.create(user=self.host, psn='HostPSN')
+        GamerTags.objects.create(user=self.player, xbox='PlayerXbox')
+        game = Game.objects.create(game_short_name="Apex", game_name="Apex Legends", description="desc", image_path="img.jpg")
+        self.session = GameSession.objects.create(created_by=self.host, game=game, max_players=3, session_name="s", description="d", instructions="secret discord link")
+        self.session.players.add(self.player)
+        self.url = f'/api/session/{self.session.id}'
+
+    def login(self, user):
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {RefreshToken.for_user(user).access_token}')
+
+    def assertPublic(self, data):
+        self.assertNotIn('joinDescription', data)
+        self.assertNotIn('hostGamerTags', data)
+        self.assertNotIn('gamerTags', data['players'][0])
+        self.assertNotIn('secret discord link', str(data))
+
+    def test_session_list_is_public_only(self):
+        self.login(self.host)
+        self.assertPublic(self.client.get('/api/get-sessions').data[0])
+
+    def test_detail_for_anonymous_is_public_only(self):
+        resp = self.client.get(self.url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertPublic(resp.data)
+        self.assertEqual(resp.data['sessionName'], 's')
+
+    def test_detail_for_outsider_is_public_only(self):
+        self.login(self.outsider)
+        self.assertPublic(self.client.get(self.url).data)
+
+    def test_detail_for_host_and_player_is_private(self):
+        for user in (self.host, self.player):
+            self.login(user)
+            data = self.client.get(self.url).data
+            self.assertEqual(data['joinDescription'], 'secret discord link')
+            self.assertEqual(data['hostGamerTags'], {'psn': 'HostPSN'})
+            self.assertEqual(data['players'][0]['gamerTags'], {'xbox': 'PlayerXbox'})
+
+    def test_detail_unknown_session(self):
+        self.assertEqual(self.client.get('/api/session/9999').status_code, 404)
+
+
+#Testing that bad input gets a 4xx response instead of a server error
+class InputValidationTest(TestCase):
+
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create_user(username='user', password='1X<ISRUkw+tuK')
+        self.other = User.objects.create_user(username='other', password='1X<ISRUkw+tuK')
+        self.game = Game.objects.create(game_short_name="Apex", game_name="Apex Legends", description="desc", image_path="img.jpg")
+        self.forum = Forum.objects.create(title="Apex Forum", tag="apex", description="d")
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {RefreshToken.for_user(self.user).access_token}')
+
+    def session_body(self, **overrides):
+        return {'game_id': self.game.id, 'max_players': 3, 'session_name': 's', 'description': 'd', 'instructions': 'i', **overrides}
+
+    def test_create_session_validation(self):
+        bad_bodies = [
+            self.session_body(game_id=9999),
+            self.session_body(max_players=0),
+            self.session_body(max_players=-2),
+            self.session_body(max_players=500),
+            self.session_body(max_players='lots'),
+            self.session_body(session_name=''),
+            self.session_body(session_name='x' * 101),
+            self.session_body(description='x' * 301),
+            {'game_id': self.game.id},
+            {},
+        ]
+        for body in bad_bodies:
+            resp = self.client.post('/api/create-session', body, format='json')
+            self.assertEqual(resp.status_code, 400, body)
+            self.assertIn('detail', resp.data)
+        self.assertFalse(GameSession.objects.exists())
+
+    def test_cannot_create_two_sessions(self):
+        self.assertEqual(self.client.post('/api/create-session', self.session_body(), format='json').status_code, 201)
+        resp = self.client.post('/api/create-session', self.session_body(), format='json')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_session_actions_validation(self):
+        session = GameSession.objects.create(created_by=self.other, game=self.game, max_players=1, session_name="s", description="d", instructions="i")
+        self.assertEqual(self.client.put('/api/create-session', {'action': 0}, format='json').status_code, 400)
+        self.assertEqual(self.client.put('/api/create-session', {'action': 0, 'session_id': 9999}, format='json').status_code, 404)
+        self.assertEqual(self.client.put('/api/create-session', {'action': 7, 'session_id': session.id}, format='json').status_code, 400)
+        self.assertEqual(self.client.put('/api/create-session', {'action': 1, 'session_id': session.id}, format='json').status_code, 400)
+
+        # join, then the room is full for anyone else
+        self.assertEqual(self.client.put('/api/create-session', {'action': 0, 'session_id': session.id}, format='json').status_code, 200)
+        third = User.objects.create_user(username='third', password='1X<ISRUkw+tuK')
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {RefreshToken.for_user(third).access_token}')
+        resp = self.client.put('/api/create-session', {'action': 0, 'session_id': session.id}, format='json')
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.data['detail'], 'This room is full.')
+
+    def test_kick_unknown_player(self):
+        session = GameSession.objects.create(created_by=self.user, game=self.game, max_players=3, session_name="s", description="d", instructions="i")
+        for player_id in (9999, 'abc', None):
+            resp = self.client.put('/api/create-session', {'action': 2, 'session_id': session.id, 'player_id': player_id}, format='json')
+            self.assertEqual(resp.status_code, 400)
+
+    def test_game_info_empty(self):
+        Game.objects.all().delete()
+        resp = self.client.get('/api/game-info')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data, [])
+
+    def test_forum_post_validation(self):
+        self.assertEqual(self.client.post('/api/forum', {'tag': 'nope', 'text': 'hi'}, format='json').status_code, 404)
+        self.assertEqual(self.client.post('/api/forum', {'tag': 'apex', 'text': '   '}, format='json').status_code, 400)
+        self.assertEqual(self.client.post('/api/forum', {'tag': 'apex', 'text': 'x' * 301}, format='json').status_code, 400)
+        self.assertEqual(self.client.post('/api/forum', {'tag': 'apex', 'text': 'hello'}, format='json').status_code, 201)
+        self.assertEqual(self.client.put('/api/forum-post', {'post_id': 9999}, format='json').status_code, 404)
+        self.assertEqual(self.client.put('/api/forum-post', {}, format='json').status_code, 404)
+
+    def test_friend_request_validation(self):
+        self.assertEqual(self.client.post('/api/friend-requests', {'rec_username': 'ghost'}, format='json').status_code, 404)
+        self.assertEqual(self.client.post('/api/friend-requests', {'rec_username': 'user'}, format='json').status_code, 400)
+        self.assertEqual(self.client.put('/api/friend-requests', {'friend_username': 'other', 'action': 0}, format='json').status_code, 404)
+        FriendRequests.objects.create(sender=self.other, receiver=self.user)
+        self.assertEqual(self.client.put('/api/friend-requests', {'friend_username': 'other', 'action': 5}, format='json').status_code, 400)
+        self.assertEqual(self.client.put('/api/friend-requests', {'friend_username': 'other', 'action': 0}, format='json').status_code, 200)
+        self.assertEqual(self.client.get('/api/friends').data, [{'username': 'other'}])
+        self.assertEqual(self.client.put('/api/friends', {'friend_username': 'ghost'}, format='json').status_code, 404)
+        self.assertEqual(self.client.put('/api/friends', {'friend_username': 'other'}, format='json').status_code, 200)
+        self.assertEqual(self.client.get('/api/friends').data, [])
+
+    def test_friend_lists_only_show_own(self):
+        third = User.objects.create_user(username='third', password='1X<ISRUkw+tuK')
+        Friends.objects.create(user=self.other, friend=third)
+        FriendRequests.objects.create(sender=self.other, receiver=third)
+        self.assertEqual(self.client.get('/api/friends').data, [])
+        self.assertEqual(self.client.get('/api/friend-requests').data, [])
+
+    def test_profile_validation(self):
+        self.assertEqual(self.client.post('/api/profile-bio', {}, format='json').status_code, 400)
+        self.assertEqual(self.client.post('/api/profile-bio', {'bio': 'x' * 301}, format='json').status_code, 400)
+        # saving works even before the profile was ever fetched
+        self.assertEqual(self.client.post('/api/profile-bio', {'bio': 'hello'}, format='json').status_code, 200)
+        self.assertEqual(self.client.get('/api/profile-bio').data, {'bio': 'hello'})
+
+        for bad_url in ('not a url', 'javascript:alert(1)', 'ftp://example.com/a.png', ''):
+            self.assertEqual(self.client.post('/api/profile-image', {'image_url': bad_url}, format='json').status_code, 400, bad_url)
+        self.assertEqual(self.client.post('/api/profile-image', {'image_url': 'https://example.com/me.png'}, format='json').status_code, 200)
+        self.assertEqual(self.client.get('/api/profile-image').data, {'image_url': 'https://example.com/me.png'})

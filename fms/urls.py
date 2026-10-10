@@ -10,6 +10,7 @@ urlpatterns = [
 	path('get-forums', GetForumsView.as_view()),
     path('create-session', SessionView.as_view()),
 	path('get-sessions', GetSessionsView.as_view()),
+	path('session/<int:session_id>', SessionDetailView.as_view()),
     path('game-info', GameInfoView.as_view()),
     path('forum-post', PostView.as_view()),
     path('friend-requests', FriendRequestsView.as_view()),
