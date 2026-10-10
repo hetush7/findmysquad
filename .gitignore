@@ -15,6 +15,7 @@ htmlcov/
 .env
 .env.*
 !.env.example
+!.env.prod.example
 
 # Local Postgres data (bind-mounted by docker-compose)
 /data/
@@ -23,3 +24,6 @@ htmlcov/
 frontend/node_modules/
 frontend/build/
 npm-debug.log*
+
+# Django collectstatic output
+staticfiles/

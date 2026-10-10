@@ -29,7 +29,7 @@ If you are on Windows then refer to the **For Windows** section before running t
 **Step 4:** From the root project directory, run `docker compose build`
 <br>
 
-**Step 5:** Run `bash start.sh`. On the first run this creates a local `.env` file (from `.env.example`, with a random `DJANGO_SECRET_KEY`). Never commit `.env`. You might have to run this twice as, in the first go, the data base will be established for connections
+**Step 5:** Run `bash start.sh`. On the first run this creates a local `.env` file (from `.env.example`, with a random `DJANGO_SECRET_KEY`). Never commit `.env`.
 <br>
 
 **Step 6:** The server should have started. Visit [for-Mac](http://0.0.0.0:8000/api) or [for-Windows](http://127.0.0.1:8000/api) on your browser to check the backed server. Visit [localhost:3000](http://localhost:3000) to view the 
@@ -58,6 +58,31 @@ When running locally, our application will have no games or forums. The admin/we
 
 `docker compose run web python manage.py loaddata test_data.json`
 <br>
+
+## Deploying
+
+The production stack is `docker-compose.prod.yml`: **nginx** serves the built React app and forwards `/api`, `/admin` and `/static` to **gunicorn** (Django), which talks to **PostgreSQL**. Everything is on one domain, so no CORS setup is needed.
+
+1. On the server (for example an AWS EC2 instance with Docker installed), clone the repo.
+2. Create the production settings and fill in every value (secret key, domain, database password):
+   ```
+   cp .env.prod.example .env.prod
+   ```
+3. Start it (migrations and static files run automatically on startup):
+   ```
+   docker compose -f docker-compose.prod.yml up -d --build
+   ```
+4. Create an admin user and load the games and forums:
+   ```
+   docker compose -f docker-compose.prod.yml exec web python manage.py createsuperuser
+   docker compose -f docker-compose.prod.yml exec web python manage.py loaddata test_data.json
+   ```
+5. Put HTTPS in front of port 80, e.g. an AWS Application Load Balancer with an ACM certificate, and keep `DJANGO_HTTPS=1` in `.env.prod`.
+
+Notes:
+- `HTTP_PORT` changes the published port (default 80).
+- To use a managed database (e.g. AWS RDS) instead of the `db` container, point `POSTGRES_HOST` and the other `POSTGRES_*` values at it and remove the `db` service.
+- Back up the `postgres-data` volume (or use RDS snapshots).
 
 ## For Windows
 - change docker-compose.yml file to:

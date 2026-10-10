@@ -4,6 +4,11 @@ services:
     volumes:
       - ./data/db:/var/lib/postgresql/data
     env_file: .env
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     networks:
       - db
 
@@ -15,10 +20,9 @@ services:
       - .:/code
     ports:
       - "8000:8000"
-    links:
-      - db:db
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     networks:
       - db
   

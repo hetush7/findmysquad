@@ -1,0 +1,10 @@
+# Keep local data, secrets and the frontend out of the backend image
+.git
+data/
+frontend/
+.env
+.env.*
+**/__pycache__
+**/*.pyc
+staticfiles/
+**/.DS_Store
