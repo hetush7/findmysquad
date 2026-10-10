@@ -217,3 +217,12 @@ class UserReport(models.Model):
     def __str__(self):
         label = str(self.reporter) + " reported " + str(self.reported) + " (" + self.reason + ")"
         return label if self.resolved else label + " (Review Required)"
+
+class DiscordAccount(models.Model):
+    user       = models.OneToOneField(User, on_delete=models.CASCADE, related_name='discord')
+    discord_id = models.CharField(max_length=32, unique=True)
+    username   = models.CharField(max_length=100)
+    linked_at  = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return str(self.user) + " = " + self.username + " on Discord"

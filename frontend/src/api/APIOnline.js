@@ -196,6 +196,7 @@ export class APIOnline {
                 platform: room.platform || 'any',
                 region: room.region || 'any',
                 voice: room.voice || 'any',
+                post_to_discord: Boolean(room.postToDiscord),
             },
         });
         return status === 201 ? { id: data.id } : { error: errorMessage(data, 'Error creating session') };
@@ -525,6 +526,58 @@ export class APIOnline {
             body: { username, reason, details, session_id: sessionID },
         });
         return ok ? null : errorMessage(data, 'Could not send the report.');
+    }
+
+    /**
+     * A function to check whether Discord sign-in and LFG posting are set up on the server
+     * @returns - { enabled, lfgWebhook }
+     */
+    async getDiscordConfig() {
+        const { ok, data } = await request('/discord/config', { auth: false });
+        return ok ? data : { enabled: false, lfgWebhook: false };
+    }
+
+    /**
+     * A function to get the Discord page to send the browser to
+     * @param mode - "login" or "link"
+     * @returns - { url } or { error }
+     */
+    async getDiscordAuthorizeUrl(mode) {
+        const { ok, data } = await request(`/discord/authorize?mode=${mode}`, { auth: mode === 'link' });
+        return ok ? { url: data.url } : { error: errorMessage(data, "Couldn't reach Discord.") };
+    }
+
+    /**
+     * A function to finish signing in with Discord. Stores our tokens.
+     * @returns - { mode, username } on success, or { error }
+     */
+    async finishDiscordLogin(code, state) {
+        const { ok, data } = await request('/discord/callback', { method: 'POST', body: { code, state }, auth: false });
+        if (!ok) {
+            return { error: errorMessage(data, "Couldn't sign in with Discord.") };
+        }
+        storeTokens(data);
+        redirectingToLogin = false;
+        localStorage.setItem('current_user', data.username);
+        return { mode: data.mode, username: data.username };
+    }
+
+    /**
+     * A function to check whether the current user has linked Discord
+     * @returns - { linked, username }
+     */
+    async getDiscordAccount() {
+        const { ok, data } = await request('/discord/account', { redirectOn401: false });
+        return ok ? data : { linked: false, username: null };
+    }
+
+    /**
+     * A function to unlink Discord
+     * @returns null on success, otherwise an error message
+     */
+    async unlinkDiscord() {
+        const { ok, data } = await request('/discord/account', { method: 'DELETE' });
+        return ok ? null : errorMessage(data, 'Could not unlink Discord.');
     }
 
     /**

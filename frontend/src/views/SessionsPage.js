@@ -77,6 +77,7 @@ function SessionsPage() {
     if (localStorage.getItem('access_token')) {
       api.getMyRanks().then(ranks => setMyRanks(ranks));
     }
+    api.getDiscordConfig().then(config => setDiscordWebhook(config.lfgWebhook));
 
     document.body.classList.add("sessions-page");
     return function cleanup() {
@@ -158,6 +159,8 @@ function SessionsPage() {
   const [formPlatform, setFormPlatform] = useState("any");
   const [formRegion, setFormRegion] = useState("any");
   const [formVoice, setFormVoice] = useState("any");
+  const [formPostToDiscord, setFormPostToDiscord] = useState(false);
+  const [discordWebhook, setDiscordWebhook] = useState(false);
   const formRanks = (games.find(game => game.id === formGame) || {}).ranks || [];
 
   // ranks belong to a game, so picking another game clears the rank range
@@ -227,6 +230,7 @@ function SessionsPage() {
       platform: formPlatform,
       region: formRegion,
       voice: formVoice,
+      postToDiscord: formPostToDiscord,
     });
 
     // if a sessionID is returned, save sessionID to web session storage and redirect to room-page. Otherwise, show error message.
@@ -334,6 +338,15 @@ function SessionsPage() {
                                 </Col>
                               ))}
                             </Row>
+                            {discordWebhook && (
+                              <FormGroup check className="text-left mb-3">
+                                <Label check>
+                                  <Input type="checkbox" checked={formPostToDiscord} onChange={e => setFormPostToDiscord(e.target.checked)} />
+                                  Post this room to the Discord LFG channel
+                                  <span className="form-check-sign"><span className="check"></span></span>
+                                </Label>
+                              </FormGroup>
+                            )}
                             {formRanks.length > 0 && (
                               <Row>
                                 <Col md="3">

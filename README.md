@@ -59,6 +59,15 @@ When running locally, our application will have no games or forums. The admin/we
 `docker compose run web python manage.py loaddata test_data.json`
 <br>
 
+## Discord (optional)
+To enable "Continue with Discord", gamer-tag import from Discord connections, and announcing rooms in a Discord channel:
+1. Create an application at the [Discord Developer Portal](https://discord.com/developers/applications).
+2. Under **OAuth2**, add the redirect URI `http://localhost:3000/discord-callback` (and your production URL, e.g. `https://your-domain/discord-callback`).
+3. Put the client ID and secret in `.env` (`DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `DISCORD_REDIRECT_URI`).
+4. Optional: create a channel webhook and set `DISCORD_LFG_WEBHOOK_URL`; hosts then get a "Post this room to the Discord LFG channel" checkbox.
+
+Without these settings the Discord buttons are simply hidden.
+
 ## Deploying
 
 The production stack is `docker-compose.prod.yml`: **nginx** serves the built React app and forwards `/api`, `/admin` and `/static` to **gunicorn** (Django), which talks to **PostgreSQL**. Everything is on one domain, so no CORS setup is needed.

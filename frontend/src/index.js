@@ -39,6 +39,7 @@ import Error404Page from "views/Error404Page";
 import ForumPage from "views/ForumPage";
 import ForumSinglePage from "views/ForumSinglePage";
 import ProfilePage from "views/ProfilePage";
+import DiscordCallbackPage from "views/DiscordCallbackPage";
 
 // others
 API.init();
@@ -93,6 +94,10 @@ createRoot(document.getElementById("root")).render(
       <Route
         path="/profile-page"
         render={(props) => <ProfilePage {...props} />}
+      />
+      <Route
+        path="/discord-callback"
+        render={(props) => <DiscordCallbackPage {...props} />}
       />
       <Redirect to="/landing-page" />
     </Switch>

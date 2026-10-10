@@ -997,3 +997,159 @@ class BlockReportTest(TestCase):
         self.assertEqual(self.client.post('/api/report-user', {'username': 'bob', 'reason': 'other', 'details': 'x' * 501}, format='json').status_code, 400)
         self.assertEqual(self.client.post('/api/report-user', {'username': 'ghost', 'reason': 'spam'}, format='json').status_code, 404)
         self.assertFalse(UserReport.objects.exists())
+
+
+#Testing Discord sign-in, linking, gamer tag import and room announcements (Discord itself is mocked)
+from unittest import mock
+import os
+
+DISCORD_ENV = {'DISCORD_CLIENT_ID': 'client', 'DISCORD_CLIENT_SECRET': 'secret', 'DISCORD_REDIRECT_URI': 'http://localhost:3000/discord-callback'}
+
+@mock.patch.dict(os.environ, DISCORD_ENV)
+class DiscordTest(TestCase):
+
+    PROFILE = {'id': '123456', 'username': 'nightowl', 'global_name': 'Night Owl', 'email': 'owl@example.com'}
+    CONNECTIONS = [
+        {'type': 'playstation', 'name': 'OwlPSN', 'verified': True},
+        {'type': 'steam', 'name': 'owl_steam', 'verified': True},
+        {'type': 'xbox', 'name': 'NotVerified', 'verified': False},
+        {'type': 'github', 'name': 'owl-dev', 'verified': True},
+    ]
+
+    def setUp(self):
+        self.client = APIClient()
+        patcher = mock.patch.multiple('fms.views.discord', exchange_code=mock.DEFAULT, fetch_user=mock.DEFAULT, fetch_connections=mock.DEFAULT)
+        self.mocks = patcher.start()
+        self.addCleanup(patcher.stop)
+        self.mocks['exchange_code'].return_value = 'discord-token'
+        self.mocks['fetch_user'].return_value = self.PROFILE
+        self.mocks['fetch_connections'].return_value = self.CONNECTIONS
+
+    def state(self, mode='login', user=None):
+        if user:
+            self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {RefreshToken.for_user(user).access_token}')
+        url = self.client.get('/api/discord/authorize', {'mode': mode}).data['url']
+        self.client.credentials()
+        from urllib.parse import urlparse, parse_qs
+        return parse_qs(urlparse(url).query)['state'][0]
+
+    def callback(self, state, code='abc'):
+        return self.client.post('/api/discord/callback', {'code': code, 'state': state}, format='json')
+
+    def test_config(self):
+        self.assertEqual(self.client.get('/api/discord/config').data, {'enabled': True, 'lfgWebhook': False})
+        with mock.patch.dict(os.environ, {'DISCORD_CLIENT_ID': ''}):
+            self.assertEqual(self.client.get('/api/discord/config').data['enabled'], False)
+            self.assertEqual(self.client.get('/api/discord/authorize').status_code, 503)
+
+    def test_authorize_url(self):
+        url = self.client.get('/api/discord/authorize').data['url']
+        self.assertTrue(url.startswith('https://discord.com/oauth2/authorize?'))
+        self.assertIn('client_id=client', url)
+        self.assertIn('scope=identify+email+connections', url)
+
+    def test_first_login_creates_account_and_imports_tags(self):
+        resp = self.callback(self.state())
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.data['created'])
+        self.assertEqual(resp.data['username'], 'nightowl')
+        self.assertEqual(sorted(resp.data['imported']), ['psn', 'steam'])
+        user = User.objects.get(username='nightowl')
+        self.assertFalse(user.has_usable_password())
+        self.assertEqual(user.email, 'owl@example.com')
+        self.assertEqual((user.gamer_tags.psn, user.gamer_tags.steam, user.gamer_tags.xbox), ('OwlPSN', 'owl_steam', ''))
+        # the returned token works
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {resp.data['access']}")
+        self.assertEqual(self.client.get('/api/user-check').data, {'username': 'nightowl'})
+
+    def test_second_login_reuses_account(self):
+        self.callback(self.state())
+        resp = self.callback(self.state())
+        self.assertFalse(resp.data['created'])
+        self.assertEqual(User.objects.filter(username__startswith='nightowl').count(), 1)
+
+    def test_username_clash_gets_a_suffix(self):
+        User.objects.create_user(username='nightowl', password='1X<ISRUkw+tuK')
+        self.assertEqual(self.callback(self.state()).data['username'], 'nightowl2')
+
+    def test_link_existing_account_keeps_typed_tags(self):
+        user = User.objects.create_user(username='player', password='1X<ISRUkw+tuK')
+        GamerTags.objects.create(user=user, psn='TypedByMe')
+        resp = self.callback(self.state('link', user))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['username'], 'player')
+        self.assertEqual(resp.data['imported'], ['steam'])
+        user.refresh_from_db()
+        self.assertEqual((user.discord.username, user.gamer_tags.psn), ('Night Owl', 'TypedByMe'))
+
+    def test_link_requires_login_and_free_discord_account(self):
+        self.assertEqual(self.client.get('/api/discord/authorize', {'mode': 'link'}).status_code, 401)
+        self.callback(self.state())  # nightowl now owns this Discord account
+        other = User.objects.create_user(username='other', password='1X<ISRUkw+tuK')
+        self.assertEqual(self.callback(self.state('link', other)).status_code, 400)
+
+    def test_rejects_tampered_or_missing_state(self):
+        self.assertEqual(self.callback('forged-state').status_code, 400)
+        self.assertEqual(self.callback(self.state() + 'x').status_code, 400)
+        self.assertEqual(self.callback(self.state(), code='').status_code, 400)
+        self.assertFalse(User.objects.exists())
+
+    def test_discord_failure_returns_502(self):
+        from fms.discord import DiscordError
+        self.mocks['exchange_code'].side_effect = DiscordError('boom')
+        self.assertEqual(self.callback(self.state()).status_code, 502)
+
+    def test_unlink_needs_a_password(self):
+        resp = self.callback(self.state())
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {resp.data['access']}")
+        self.assertEqual(self.client.get('/api/discord/account').data, {'linked': True, 'username': 'Night Owl'})
+        self.assertEqual(self.client.delete('/api/discord/account').status_code, 400)
+        # a Discord-only account can set a password without an old one, then unlink
+        self.assertEqual(self.client.post('/api/update-password', {'new_password': 'N3w-Strong-Pass!'}, format='json').status_code, 200)
+        self.assertEqual(self.client.delete('/api/discord/account').data, {'linked': False, 'username': None})
+
+    def test_room_announced_to_lfg_channel(self):
+        host = User.objects.create_user(username='host', password='1X<ISRUkw+tuK')
+        game = Game.objects.create(game_short_name="Apex", game_name="Apex Legends", description="d", image_path="i", ranks=['Gold', 'Diamond'])
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {RefreshToken.for_user(host).access_token}')
+        body = {'game_id': game.id, 'max_players': 3, 'session_name': 'Ranked grind', 'description': 'Push to Diamond', 'instructions': 'i',
+                'min_rank': 'Gold', 'platform': 'pc'}
+        with mock.patch('fms.views.discord.post_room') as post_room:
+            # not configured: nothing is posted
+            self.client.post('/api/create-session', {**body, 'post_to_discord': True}, format='json')
+            post_room.assert_not_called()
+            GameSession.objects.all().delete()
+            with mock.patch.dict(os.environ, {'DISCORD_LFG_WEBHOOK_URL': 'https://discord.example/webhook', 'SITE_URL': 'https://fms.example'}):
+                # configured but not ticked
+                self.client.post('/api/create-session', body, format='json')
+                post_room.assert_not_called()
+                GameSession.objects.all().delete()
+                resp = self.client.post('/api/create-session', {**body, 'post_to_discord': True}, format='json')
+        self.assertEqual(resp.status_code, 201)
+        embed = post_room.call_args[0][0]
+        self.assertEqual(embed['title'], 'Ranked grind')
+        self.assertEqual(embed['url'], f"https://fms.example/room-page?id={resp.data['id']}")
+        self.assertEqual(embed['fields'][0]['value'], 'Apex Legends · Gold – Any · PC')
+
+    def test_webhook_failure_does_not_block_room(self):
+        from fms.discord import DiscordError
+        host = User.objects.create_user(username='host', password='1X<ISRUkw+tuK')
+        game = Game.objects.create(game_short_name="Apex", game_name="Apex Legends", description="d", image_path="i")
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {RefreshToken.for_user(host).access_token}')
+        with mock.patch.dict(os.environ, {'DISCORD_LFG_WEBHOOK_URL': 'https://discord.example/webhook'}), \
+             mock.patch('fms.views.discord.post_room', side_effect=DiscordError('down')):
+            resp = self.client.post('/api/create-session', {'game_id': game.id, 'max_players': 3, 'session_name': 's', 'description': 'd',
+                                                            'instructions': 'i', 'post_to_discord': True}, format='json')
+        self.assertEqual(resp.status_code, 201)
+
+
+class DiscordHelpersTest(TestCase):
+
+    def test_gamer_tags_from_connections(self):
+        from fms.discord import gamer_tags_from_connections
+        tags = gamer_tags_from_connections([
+            {'type': 'riotgames', 'name': 'Owl#OCE', 'verified': True},
+            {'type': 'xbox', 'name': 'x' * 80, 'verified': True},
+            {'type': 'playstation', 'name': 'Hidden', 'verified': False},
+        ])
+        self.assertEqual(tags, {'riot': 'Owl#OCE', 'xbox': 'x' * 50})

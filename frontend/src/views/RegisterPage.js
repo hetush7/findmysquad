@@ -18,6 +18,7 @@
 */
 import React, {useState} from "react";
 import API from "api/API";
+import DiscordButton from "components/DiscordButton";
 
 // reactstrap components
 import { Button, Card, Form, Input, Container, Row, Col } from "reactstrap";
@@ -132,6 +133,7 @@ function RegisterPage() {
                     Register
                   </Button>
                 </Form>
+                <DiscordButton className="mt-3" />
                 <div className="forgot">
                   <Button
                     className="btn-link"

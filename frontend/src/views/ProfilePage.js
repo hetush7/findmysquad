@@ -49,6 +49,7 @@ import "assets/css/demo.css"
 import API from "api/API";
 import platforms from "assets/data/platforms";
 import ENDORSEMENT_KINDS from "assets/data/endorsements";
+import DiscordButton from "components/DiscordButton";
 
 function ProfilePage() {
 
@@ -73,6 +74,8 @@ function ProfilePage() {
   const [ranksFeedback, setRanksFeedback] = useState(null); // { color, text }
   const [endorsements, setEndorsements] = useState({}); // kind -> count
   const [blocked, setBlocked] = useState([]); // [{ username }]
+  const [discordAccount, setDiscordAccount] = useState({ linked: false, username: null });
+  const [discordError, setDiscordError] = useState(null);
   const [profilePic, setProfilePic] = useState(placeholder) // Profile Pic Image URL
   const current_user = localStorage.getItem('current_user') // current user
 
@@ -236,6 +239,17 @@ function ProfilePage() {
       history.push(from.pathname)
   }
 
+  function unlinkDiscord() {
+    api.unlinkDiscord().then(error => {
+      if (error === null) {
+        setDiscordAccount({ linked: false, username: null });
+        setDiscordError(null);
+      } else {
+        setDiscordError(error);
+      }
+    })
+  }
+
   function unblock(username) {
     api.unblockUser(username).then(list => {
       if (list) { setBlocked(list) }
@@ -278,6 +292,7 @@ function ProfilePage() {
       api.getGames().then(games => setRankGames(games.filter(game => game.ranks && game.ranks.length > 0)))
       api.getMyRanks().then(ranks => setMyRanks(ranks))
       api.getBlocks().then(list => setBlocked(list))
+      api.getDiscordAccount().then(account => setDiscordAccount(account))
       if (current_user) {
         api.getEndorsements(current_user).then(counts => setEndorsements(counts))
       }
@@ -671,6 +686,15 @@ function ProfilePage() {
                 <Col className="ml-auto mr-auto text-center" md="6">
                   <h2 className="title">Gamer tags</h2>
                   <p>Add the accounts you play on so your squad can find you. They're shown to other players in your rooms.</p>
+                  {discordAccount.linked ? (
+                    <p className="discord-linked">
+                      Linked to Discord as <b>{discordAccount.username}</b>{" "}
+                      <Button className="btn-link" color="danger" size="sm" onClick={unlinkDiscord}>Unlink</Button>
+                    </p>
+                  ) : (
+                    <DiscordButton mode="link" label="Link Discord (imports your PlayStation, Xbox, Steam and Riot names)" />
+                  )}
+                  {discordError && <p className="text-danger">{discordError}</p>}
                 </Col>
               </Row>
               <Row>

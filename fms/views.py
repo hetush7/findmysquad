@@ -1,3 +1,5 @@
+import os
+
 from django.shortcuts 			import render
 from django.contrib.auth 		import authenticate, login, password_validation
 from django.core.exceptions 	import ValidationError
@@ -11,6 +13,12 @@ from rest_framework.views 		import APIView
 from rest_framework.response 	import Response 
 from rest_framework 			import status, permissions
 from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.tokens import RefreshToken
+from django.core import signing
+import logging
+import secrets
+
+from . import discord
 
 from .serializers 				import *
 from .models 					import *
@@ -112,6 +120,8 @@ class SessionView(APIView):
 			region       = serializer.validated_data['region'],
 			voice        = serializer.validated_data['voice'],
 		)
+		if serializer.validated_data['post_to_discord'] and discord.webhook_enabled():
+			announce_room(new_session)
 		return Response({'id': new_session.id}, status=status.HTTP_201_CREATED)
 
 	# Join, leave or kick, depending on 'action'
@@ -360,7 +370,8 @@ class UpdatePasswordView(APIView):
 		current_user = request.user
 
 		if current_user:
-			if not current_user.check_password(request.data.get('old_password', '')):
+			# accounts created through Discord have no password yet, so there's no current one to check
+			if current_user.has_usable_password() and not current_user.check_password(request.data.get('old_password', '')):
 				return Response({'old_password': ['Current password is incorrect.']}, status=status.HTTP_400_BAD_REQUEST)
 
 			new_password = request.data.get('new_password', '')
@@ -588,3 +599,137 @@ class ReportUserView(APIView):
 			session = GameSession.objects.filter(id=int_or_none(request.data.get('session_id'))).first()
 			UserReport.objects.create(reporter=request.user, reported=target, reason=reason, details=details, session=session)
 		return Response({}, status=status.HTTP_200_OK)
+
+logger = logging.getLogger(__name__)
+DISCORD_STATE_SALT = 'fms.discord.state'
+DISCORD_STATE_MAX_AGE = 600  # seconds the user has to finish signing in on Discord
+
+def announce_room(session):
+	# Post a new room to the Discord LFG channel; a failure never blocks creating the room
+	details = [session.game.game_name]
+	if session.min_rank or session.max_rank:
+		details.append((session.min_rank or 'Any') + ' – ' + (session.max_rank or 'Any'))
+	details += [label for value, label in (
+		(session.platform, dict(PLATFORM_CHOICES)[session.platform]),
+		(session.region, dict(REGION_CHOICES)[session.region]),
+		(session.voice, dict(VOICE_CHOICES)[session.voice]),
+	) if value != 'any']
+	embed = {
+		'title': session.session_name,
+		'description': session.description,
+		'url': os.environ.get('SITE_URL', 'http://localhost:3000').rstrip('/') + '/room-page?id=' + str(session.id),
+		'fields': [
+			{'name': 'Details', 'value': ' · '.join(details)},
+			{'name': 'Squad', 'value': 'Hosted by ' + session.created_by.username + ', ' + str(session.max_players) + ' slots'},
+		],
+	}
+	try:
+		discord.post_room(embed)
+	except discord.DiscordError as error:
+		logger.warning('Could not post room %s to Discord: %s', session.id, error)
+
+def unique_username(name):
+	base = ''.join(c for c in name if c.isalnum() or c in '_.-')[:140] or 'player'
+	candidate, n = base, 1
+	while User.objects.filter(username=candidate).exists():
+		n += 1
+		candidate = base + str(n)
+	return candidate
+
+class DiscordConfigView(APIView):
+	permission_classes = (permissions.AllowAny,)
+
+	def get(self, request, format=None):
+		return Response({'enabled': discord.is_enabled(), 'lfgWebhook': discord.webhook_enabled()}, status=status.HTTP_200_OK)
+
+class DiscordAuthorizeView(APIView):
+	permission_classes = (permissions.AllowAny,)
+
+	# URL to send the browser to. mode=login signs in (or signs up); mode=link links Discord to the logged-in user.
+	def get(self, request, format=None):
+		if not discord.is_enabled():
+			return Response({'detail': "Discord sign-in isn't set up on this server."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+		mode = request.query_params.get('mode', 'login')
+		if mode not in ('login', 'link'):
+			return bad_request('mode must be login or link.')
+		if mode == 'link' and not request.user.is_authenticated:
+			return Response({'detail': 'Log in to link your Discord account.'}, status=status.HTTP_401_UNAUTHORIZED)
+
+		state = signing.dumps({'mode': mode, 'user': request.user.id if mode == 'link' else None,
+		                       'nonce': secrets.token_urlsafe(8)}, salt=DISCORD_STATE_SALT)
+		return Response({'url': discord.authorize_url(state)}, status=status.HTTP_200_OK)
+
+class DiscordCallbackView(APIView):
+	permission_classes = (permissions.AllowAny,)
+	authentication_classes = ()
+
+	# Finish the Discord sign-in: {code, state}. Returns our own tokens.
+	def post(self, request, format=None):
+		if not discord.is_enabled():
+			return Response({'detail': "Discord sign-in isn't set up on this server."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+		try:
+			state = signing.loads(str(request.data.get('state', '')), salt=DISCORD_STATE_SALT, max_age=DISCORD_STATE_MAX_AGE)
+		except signing.BadSignature:
+			return bad_request('This Discord sign-in link has expired or is invalid. Please try again.')
+		code = str(request.data.get('code', ''))
+		if not code:
+			return bad_request('Missing Discord authorization code.')
+
+		try:
+			access_token = discord.exchange_code(code)
+			profile = discord.fetch_user(access_token)
+			connections = discord.fetch_connections(access_token)
+		except discord.DiscordError as error:
+			logger.warning('Discord sign-in failed: %s', error)
+			return Response({'detail': "Couldn't sign in with Discord. Please try again."}, status=status.HTTP_502_BAD_GATEWAY)
+
+		discord_id = str(profile.get('id', ''))
+		discord_name = profile.get('global_name') or profile.get('username') or 'player'
+		account = DiscordAccount.objects.filter(discord_id=discord_id).select_related('user').first()
+		created = False
+
+		if state['mode'] == 'link':
+			user = User.objects.filter(id=state['user']).first()
+			if user is None:
+				return bad_request('Your account no longer exists.')
+			if account and account.user != user:
+				return bad_request('That Discord account is already linked to another Find My Squad account.')
+			DiscordAccount.objects.update_or_create(user=user, defaults={'discord_id': discord_id, 'username': discord_name})
+		elif account:
+			user = account.user
+		else:
+			user = User(username=unique_username(profile.get('username') or discord_name), email=profile.get('email') or '')
+			user.set_unusable_password()
+			user.save()
+			DiscordAccount.objects.create(user=user, discord_id=discord_id, username=discord_name)
+			created = True
+
+		# fill in gamer tags from Discord connections, never overwriting ones the player typed
+		tags, _ = GamerTags.objects.get_or_create(user=user)
+		imported = []
+		for field, value in discord.gamer_tags_from_connections(connections).items():
+			if not getattr(tags, field):
+				setattr(tags, field, value)
+				imported.append(field)
+		tags.save()
+
+		refresh = RefreshToken.for_user(user)
+		refresh['username'] = user.username
+		return Response({
+			'access': str(refresh.access_token), 'refresh': str(refresh),
+			'username': user.username, 'created': created, 'mode': state['mode'], 'imported': imported,
+		}, status=status.HTTP_200_OK)
+
+class DiscordAccountView(APIView):
+
+	# Whether the current user has linked Discord
+	def get(self, request, format=None):
+		account = DiscordAccount.objects.filter(user=request.user).first()
+		return Response({'linked': account is not None, 'username': account.username if account else None}, status=status.HTTP_200_OK)
+
+	# Unlink Discord (only if the account can still sign in with a password)
+	def delete(self, request, format=None):
+		if not request.user.has_usable_password():
+			return bad_request('Set a password first, otherwise you could not sign in after unlinking Discord.')
+		DiscordAccount.objects.filter(user=request.user).delete()
+		return self.get(request)

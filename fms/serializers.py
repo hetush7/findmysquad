@@ -266,6 +266,7 @@ class CreateSessionSerializer(serializers.Serializer):
 	platform     = serializers.ChoiceField(choices=PLATFORM_CHOICES, required=False, default='any')
 	region       = serializers.ChoiceField(choices=REGION_CHOICES, required=False, default='any')
 	voice        = serializers.ChoiceField(choices=VOICE_CHOICES, required=False, default='any')
+	post_to_discord = serializers.BooleanField(required=False, default=False)
 
 	def validate(self, attrs):
 		error = attrs['game'].rank_range_error(attrs['min_rank'], attrs['max_rank'])
