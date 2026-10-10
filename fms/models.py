@@ -183,3 +183,37 @@ class Endorsement(models.Model):
 
     def __str__(self):
         return str(self.from_user) + " endorsed " + str(self.to_user) + " (" + self.kind + ")"
+
+class Block(models.Model):
+    blocker    = models.ForeignKey(User, on_delete=models.CASCADE, related_name='blocks_made')
+    blocked    = models.ForeignKey(User, on_delete=models.CASCADE, related_name='blocked_by')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['blocker', 'blocked'], name='one_block_per_pair')]
+
+    def __str__(self):
+        return str(self.blocker) + " blocked " + str(self.blocked)
+
+    @staticmethod
+    def between(user, other):
+        # True if either user has blocked the other
+        return Block.objects.filter(models.Q(blocker=user, blocked=other) | models.Q(blocker=other, blocked=user)).exists()
+
+class UserReport(models.Model):
+    REASON_CHOICES = [('harassment', 'Harassment or abuse'), ('cheating', 'Cheating'), ('spam', 'Spam'), ('other', 'Other')]
+
+    reporter   = models.ForeignKey(User, on_delete=models.CASCADE, related_name='reports_made')
+    reported   = models.ForeignKey(User, on_delete=models.CASCADE, related_name='reports_received')
+    reason     = models.CharField(max_length=20, choices=REASON_CHOICES)
+    details    = models.CharField(max_length=500, blank=True, default='')
+    session    = models.ForeignKey(GameSession, on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    resolved   = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ['resolved', '-id']
+
+    def __str__(self):
+        label = str(self.reporter) + " reported " + str(self.reported) + " (" + self.reason + ")"
+        return label if self.resolved else label + " (Review Required)"

@@ -917,3 +917,83 @@ class EndorsementTest(TestCase):
     def test_public_counts_for_unknown_user(self):
         self.assertEqual(self.client.get('/api/endorsements/ghost').status_code, 404)
         self.assertEqual(self.client.get('/api/endorsements/host').data, {})
+
+
+#Testing blocking and reporting users
+class BlockReportTest(TestCase):
+
+    def setUp(self):
+        self.client = APIClient()
+        self.alice = User.objects.create_user(username='alice', password='1X<ISRUkw+tuK')
+        self.bob = User.objects.create_user(username='bob', password='1X<ISRUkw+tuK')
+        self.game = Game.objects.create(game_short_name="Apex", game_name="Apex Legends", description="d", image_path="i")
+
+    def login(self, user):
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {RefreshToken.for_user(user).access_token}')
+
+    def block(self, blocker, username):
+        self.login(blocker)
+        return self.client.post('/api/blocks', {'username': username}, format='json')
+
+    def test_block_list_and_unblock(self):
+        resp = self.block(self.alice, 'bob')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data, [{'username': 'bob'}])
+        self.assertEqual(self.client.post('/api/blocks', {'username': 'alice'}, format='json').status_code, 400)
+        self.assertEqual(self.client.post('/api/blocks', {'username': 'ghost'}, format='json').status_code, 404)
+        self.assertEqual(self.client.post('/api/blocks/remove', {'username': 'bob'}, format='json').data, [])
+
+    def test_block_ends_friendship_and_requests(self):
+        Friends.objects.create(user=self.alice, friend=self.bob)
+        FriendRequests.objects.create(sender=self.bob, receiver=self.alice)
+        self.block(self.alice, 'bob')
+        self.assertFalse(Friends.objects.exists())
+        self.assertFalse(FriendRequests.objects.exists())
+        # neither side can send a new request
+        self.assertEqual(self.client.post('/api/friend-requests', {'rec_username': 'bob'}, format='json').status_code, 400)
+        self.login(self.bob)
+        self.assertEqual(self.client.post('/api/friend-requests', {'rec_username': 'alice'}, format='json').status_code, 400)
+
+    def test_blocked_user_cannot_join_and_is_removed(self):
+        session = GameSession.objects.create(created_by=self.alice, game=self.game, max_players=3, session_name="s", description="d", instructions="i")
+        session.players.add(self.bob)
+        self.block(self.alice, 'bob')
+        self.assertFalse(session.players.filter(id=self.bob.id).exists())
+        self.login(self.bob)
+        resp = self.client.put('/api/create-session', {'action': 0, 'session_id': session.id}, format='json')
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.data['detail'], "You can't join this room.")
+
+    def test_blocked_messages_hidden(self):
+        session = GameSession.objects.create(created_by=self.alice, game=self.game, max_players=3, session_name="s", description="d", instructions="i")
+        session.players.add(self.bob)
+        ChatMessage.objects.create(session=session, sender=self.bob, text='rude')
+        ChatMessage.objects.create(session=session, sender=self.alice, text='hi')
+        Block.objects.create(blocker=self.alice, blocked=self.bob)  # (host blocking via the API would also remove bob)
+        self.login(self.alice)
+        self.assertEqual([m['text'] for m in self.client.get(f'/api/session-chat/{session.id}').data], ['hi'])
+
+    def test_cannot_invite_blocked_user(self):
+        session = GameSession.objects.create(created_by=self.alice, game=self.game, max_players=3, session_name="s", description="d", instructions="i")
+        Friends.objects.create(user=self.alice, friend=self.bob)
+        Block.objects.create(blocker=self.bob, blocked=self.alice)
+        self.login(self.alice)
+        self.assertEqual(self.client.post(f'/api/session/{session.id}/invite', {'username': 'bob'}, format='json').status_code, 400)
+
+    def test_report_user(self):
+        self.login(self.alice)
+        resp = self.client.post('/api/report-user', {'username': 'bob', 'reason': 'cheating', 'details': 'wallhacks'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        report = UserReport.objects.get()
+        self.assertEqual((report.reported, report.reason, report.details), (self.bob, 'cheating', 'wallhacks'))
+        # repeat within a day doesn't pile up
+        self.client.post('/api/report-user', {'username': 'bob', 'reason': 'spam'}, format='json')
+        self.assertEqual(UserReport.objects.count(), 1)
+
+    def test_report_validation(self):
+        self.login(self.alice)
+        self.assertEqual(self.client.post('/api/report-user', {'username': 'alice', 'reason': 'spam'}, format='json').status_code, 400)
+        self.assertEqual(self.client.post('/api/report-user', {'username': 'bob', 'reason': 'boring'}, format='json').status_code, 400)
+        self.assertEqual(self.client.post('/api/report-user', {'username': 'bob', 'reason': 'other', 'details': 'x' * 501}, format='json').status_code, 400)
+        self.assertEqual(self.client.post('/api/report-user', {'username': 'ghost', 'reason': 'spam'}, format='json').status_code, 404)
+        self.assertFalse(UserReport.objects.exists())

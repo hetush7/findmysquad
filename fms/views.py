@@ -128,6 +128,9 @@ class SessionView(APIView):
 				return bad_request('You are already in a room.')
 			if current_session.is_full():
 				return bad_request('This room is full.')
+			member_ids = [current_session.created_by_id] + list(current_session.players.values_list('id', flat=True))
+			if Block.objects.filter(blocker_id__in=member_ids, blocked=current_user).exists():
+				return bad_request("You can't join this room.")
 			current_session.players.add(current_user)
 			return Response({}, status=status.HTTP_200_OK)
 
@@ -219,6 +222,8 @@ class FriendRequestsView(APIView):
 
 		if receiver_user == current_user:
 			return bad_request("You can't send a friend request to yourself.")
+		if Block.between(current_user, receiver_user):
+			return bad_request("You can't send a friend request to this user.")
 		if FriendRequests.objects.filter(sender=current_user, receiver=receiver_user).exists():
 			return bad_request('Request already sent.')
 		if are_friends(current_user, receiver_user):
@@ -409,7 +414,8 @@ class SessionChatView(APIView):
 		if session is None:
 			return Response({'detail': 'Only squad members can read this chat.'}, status=status.HTTP_403_FORBIDDEN)
 
-		messages = session.messages.select_related('sender')
+		blocked_ids = Block.objects.filter(blocker=request.user).values_list('blocked_id', flat=True)
+		messages = session.messages.select_related('sender').exclude(sender_id__in=blocked_ids)
 		after = request.query_params.get('after')
 		if after is not None:
 			if not after.isdigit():
@@ -468,6 +474,8 @@ class SessionInviteView(APIView):
 		friend = get_object_or_404(User, username=request.data.get('username', ''))
 		if not are_friends(request.user, friend):
 			return bad_request('You can only invite your friends.')
+		if Block.between(request.user, friend):
+			return bad_request("You can't invite this user.")
 		if session.has_member(friend):
 			return bad_request(friend.username + ' is already in this room.')
 
@@ -529,3 +537,54 @@ class EndorsementsView(APIView):
 		user = get_object_or_404(User, username=username)
 		counts = user.endorsements_received.values('kind').annotate(total=Count('id'))
 		return Response({row['kind']: row['total'] for row in counts}, status=status.HTTP_200_OK)
+
+class BlocksView(APIView):
+
+	# Users the current user has blocked
+	def get(self, request, format=None):
+		blocks = Block.objects.filter(blocker=request.user).select_related('blocked').order_by('blocked__username')
+		return Response([{'username': b.blocked.username} for b in blocks], status=status.HTTP_200_OK)
+
+	# Block a user: also ends any friendship and pending friend requests, and removes them from your room
+	def post(self, request, format=None):
+		target = get_object_or_404(User, username=request.data.get('username', ''))
+		if target == request.user:
+			return bad_request("You can't block yourself.")
+
+		Block.objects.get_or_create(blocker=request.user, blocked=target)
+		Friends.objects.filter(Q(user=request.user, friend=target) | Q(user=target, friend=request.user)).delete()
+		FriendRequests.objects.filter(Q(sender=request.user, receiver=target) | Q(sender=target, receiver=request.user)).delete()
+		for session in GameSession.objects.filter(created_by=request.user, players=target):
+			session.players.remove(target)
+		return self.get(request)
+
+class UnblockView(APIView):
+
+	def post(self, request, format=None):
+		target = get_object_or_404(User, username=request.data.get('username', ''))
+		Block.objects.filter(blocker=request.user, blocked=target).delete()
+		return BlocksView().get(request)
+
+class ReportUserView(APIView):
+	DETAILS_MAX = UserReport._meta.get_field('details').max_length
+
+	# Report a user to the admins: {username, reason, details?, session_id?}
+	def post(self, request, format=None):
+		target = get_object_or_404(User, username=request.data.get('username', ''))
+		reason = request.data.get('reason')
+		details = str(request.data.get('details') or '').strip()
+
+		if target == request.user:
+			return bad_request("You can't report yourself.")
+		if reason not in dict(UserReport.REASON_CHOICES):
+			return bad_request('reason must be one of: ' + ', '.join(dict(UserReport.REASON_CHOICES)) + '.')
+		if len(details) > self.DETAILS_MAX:
+			return bad_request('Details must be 500 characters or fewer.')
+
+		# one open report per pair per day is enough for the admins to see
+		recent = UserReport.objects.filter(reporter=request.user, reported=target, resolved=False,
+		                                   created_at__gte=timezone.now() - timedelta(days=1))
+		if not recent.exists():
+			session = GameSession.objects.filter(id=int_or_none(request.data.get('session_id'))).first()
+			UserReport.objects.create(reporter=request.user, reported=target, reason=reason, details=details, session=session)
+		return Response({}, status=status.HTTP_200_OK)

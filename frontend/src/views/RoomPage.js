@@ -25,6 +25,10 @@ import {
   DropdownMenu,
   DropdownToggle,
   Input,
+  Modal,
+  ModalBody,
+  ModalFooter,
+  ModalHeader,
   UncontrolledDropdown,
   Badge,
   Button,
@@ -86,8 +90,15 @@ function GamerTags({ tags }) {
   );
 }
 
-// Actions on another squad member: endorsements (more actions can be added to this menu)
-function MemberMenu({ username, given, onEndorse }) {
+const REPORT_REASONS = [
+  { value: "harassment", label: "Harassment or abuse" },
+  { value: "cheating", label: "Cheating" },
+  { value: "spam", label: "Spam" },
+  { value: "other", label: "Other" },
+];
+
+// Actions on another squad member: endorse, report or block them
+function MemberMenu({ username, given, onEndorse, onReport, onBlock }) {
   return (
     <UncontrolledDropdown className="room-member-menu">
       <DropdownToggle color="link" size="sm" aria-label={`Actions for ${username}`}>⋯</DropdownToggle>
@@ -101,6 +112,9 @@ function MemberMenu({ username, given, onEndorse }) {
             </DropdownItem>
           );
         })}
+        <DropdownItem divider />
+        <DropdownItem onClick={() => onReport(username)}>Report…</DropdownItem>
+        <DropdownItem className="text-danger" onClick={() => onBlock(username)}>Block</DropdownItem>
       </DropdownMenu>
     </UncontrolledDropdown>
   );
@@ -132,6 +146,10 @@ function RoomPage() {
   const [myRanks, setMyRanks] = useState({}); // game id -> rank
   const [friends, setFriends] = useState([]); // usernames
   const [inviteFriend, setInviteFriend] = useState("");
+  const [reportTarget, setReportTarget] = useState(null); // username being reported
+  const [reportReason, setReportReason] = useState("harassment");
+  const [reportDetails, setReportDetails] = useState("");
+  const [chatKey, setChatKey] = useState(0); // bump to reload the chat (e.g. after blocking someone)
 
   const hasLoadedRef = React.useRef(false);
 
@@ -284,6 +302,35 @@ function RoomPage() {
 
   const givenTo = username => (session.myEndorsements || {})[username] || [];
 
+  function startReport(username) {
+    setReportTarget(username);
+    setReportReason("harassment");
+    setReportDetails("");
+  }
+
+  async function sendReport() {
+    const error = await api.reportUser(reportTarget, reportReason, reportDetails, session.id);
+    setNotice(error === null
+      ? { color: "info", text: `Thanks. Your report about ${reportTarget} was sent to the moderators.` }
+      : { color: "danger", text: error });
+    setReportTarget(null);
+  }
+
+  async function block(username) {
+    const extra = isHost ? " They'll be removed from your room." : "";
+    if (!window.confirm(`Block ${username}? You won't see their messages, they can't join rooms you're in, and you'll no longer be friends.${extra}`)) {
+      return;
+    }
+    const error = await api.blockUser(username);
+    if (error === null) {
+      setNotice({ color: "info", text: `${username} is blocked. You can unblock them from your profile.` });
+      setChatKey(key => key + 1);
+      refreshSession();
+    } else {
+      setNotice({ color: "danger", text: error });
+    }
+  }
+
   async function copy(text, label) {
     try {
       await navigator.clipboard.writeText(text);
@@ -360,7 +407,7 @@ function RoomPage() {
                           <GamerTags tags={session.hostGamerTags} />
                         </div>
                         {isMember && !isHost && (
-                          <MemberMenu username={session.hostUsername} given={givenTo(session.hostUsername)} onEndorse={endorse} />
+                          <MemberMenu username={session.hostUsername} given={givenTo(session.hostUsername)} onEndorse={endorse} onReport={startReport} onBlock={block} />
                         )}
                       </li>
                       {session.players.map(player => (
@@ -376,7 +423,7 @@ function RoomPage() {
                             <GamerTags tags={player.gamerTags} />
                           </div>
                           {isMember && player.username !== currentUser && (
-                            <MemberMenu username={player.username} given={givenTo(player.username)} onEndorse={endorse} />
+                            <MemberMenu username={player.username} given={givenTo(player.username)} onEndorse={endorse} onReport={startReport} onBlock={block} />
                           )}
                           {isHost && (
                             <Button
@@ -407,7 +454,7 @@ function RoomPage() {
                       <h4>Squad chat</h4>
                     </CardHeader>
                     <CardBody>
-                      <RoomChat sessionID={session.id} currentUser={currentUser} onAccessLost={refreshSession} />
+                      <RoomChat key={chatKey} sessionID={session.id} currentUser={currentUser} onAccessLost={refreshSession} />
                     </CardBody>
                   </Card>
                 )}
@@ -485,6 +532,30 @@ function RoomPage() {
           </Container>
         </div>
       </div>
+      <Modal isOpen={reportTarget !== null} toggle={() => setReportTarget(null)}>
+        <ModalHeader toggle={() => setReportTarget(null)}>Report {reportTarget}</ModalHeader>
+        <ModalBody>
+          <label htmlFor="reportReason">Reason</label>
+          <Input id="reportReason" type="select" value={reportReason} onChange={e => setReportReason(e.target.value)}>
+            {REPORT_REASONS.map(reason => <option key={reason.value} value={reason.value}>{reason.label}</option>)}
+          </Input>
+          <br />
+          <label htmlFor="reportDetails">Details (optional)</label>
+          <Input
+            id="reportDetails"
+            type="textarea"
+            rows="4"
+            maxLength={500}
+            value={reportDetails}
+            onChange={e => setReportDetails(e.target.value)}
+            placeholder="What happened?"
+          />
+        </ModalBody>
+        <ModalFooter>
+          <Button color="default" outline onClick={() => setReportTarget(null)}>Cancel</Button>
+          <Button color="danger" onClick={sendReport}>Send report</Button>
+        </ModalFooter>
+      </Modal>
       <PageFooter />
     </>
   );

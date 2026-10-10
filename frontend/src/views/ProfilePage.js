@@ -72,6 +72,7 @@ function ProfilePage() {
   const [myRanks, setMyRanks] = useState({}); // game id -> rank
   const [ranksFeedback, setRanksFeedback] = useState(null); // { color, text }
   const [endorsements, setEndorsements] = useState({}); // kind -> count
+  const [blocked, setBlocked] = useState([]); // [{ username }]
   const [profilePic, setProfilePic] = useState(placeholder) // Profile Pic Image URL
   const current_user = localStorage.getItem('current_user') // current user
 
@@ -235,6 +236,12 @@ function ProfilePage() {
       history.push(from.pathname)
   }
 
+  function unblock(username) {
+    api.unblockUser(username).then(list => {
+      if (list) { setBlocked(list) }
+    })
+  }
+
   function saveRanks(e) {
     e.preventDefault();
     const ranks = {};
@@ -270,6 +277,7 @@ function ProfilePage() {
       })
       api.getGames().then(games => setRankGames(games.filter(game => game.ranks && game.ranks.length > 0)))
       api.getMyRanks().then(ranks => setMyRanks(ranks))
+      api.getBlocks().then(list => setBlocked(list))
       if (current_user) {
         api.getEndorsements(current_user).then(counts => setEndorsements(counts))
       }
@@ -394,6 +402,16 @@ function ProfilePage() {
                     }}
                   >
                     Gamer tags & ranks
+                  </NavLink>
+                </NavItem>
+                <NavItem>
+                  <NavLink
+                    className={activeTab === "8" ? "active" : ""}
+                    onClick={() => {
+                      toggle("8");
+                    }}
+                  >
+                    Blocked
                   </NavLink>
                 </NavItem>
               </Nav>
@@ -720,6 +738,31 @@ function ProfilePage() {
                   </Row>
                 </>
               )}
+            </TabPane>
+
+            {/* Blocked users */}
+            <TabPane className="text-left" tabId="8" id="blocked">
+              <Row>
+                <Col className="ml-auto mr-auto text-center" md="6">
+                  <h2 className="title">Blocked users</h2>
+                  <p>Blocked users can't send you friend requests or invites, can't join rooms you're in, and their chat messages are hidden from you.</p>
+                </Col>
+              </Row>
+              <Row>
+                <Col className="ml-auto mr-auto" md="5">
+                  {blocked.length === 0 && <p className="text-center text-muted">You haven't blocked anyone.</p>}
+                  <ul className="list-unstyled">
+                    {blocked.map(user => (
+                      <li key={user.username} className="d-flex justify-content-between align-items-center py-2 border-bottom">
+                        <span>{user.username}</span>
+                        <Button className="btn-round" color="default" outline size="sm" onClick={() => unblock(user.username)}>
+                          Unblock
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                </Col>
+              </Row>
             </TabPane>
           </TabContent>
         </Container>

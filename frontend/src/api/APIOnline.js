@@ -489,6 +489,45 @@ export class APIOnline {
     }
 
     /**
+     * A function to get the users the current user has blocked
+     * @returns - A list of { username }
+     */
+    async getBlocks() {
+        const { ok, data } = await request('/blocks');
+        return ok ? data : [];
+    }
+
+    /**
+     * A function to block a user (also ends any friendship with them)
+     * @returns null on success, otherwise an error message
+     */
+    async blockUser(username) {
+        const { ok, data } = await request('/blocks', { method: 'POST', body: { username } });
+        return ok ? null : errorMessage(data, 'Could not block this user.');
+    }
+
+    /**
+     * A function to unblock a user
+     * @returns - The updated list of blocked users, or null on error
+     */
+    async unblockUser(username) {
+        const { ok, data } = await request('/blocks/remove', { method: 'POST', body: { username } });
+        return ok ? data : null;
+    }
+
+    /**
+     * A function to report a user to the admins
+     * @returns null on success, otherwise an error message
+     */
+    async reportUser(username, reason, details, sessionID) {
+        const { ok, data } = await request('/report-user', {
+            method: 'POST',
+            body: { username, reason, details, session_id: sessionID },
+        });
+        return ok ? null : errorMessage(data, 'Could not send the report.');
+    }
+
+    /**
      * A function to get room chat messages
      * @param sessionID - The session whose chat to read
      * @param afterID - Only return messages newer than this message id (omit for the latest messages)
