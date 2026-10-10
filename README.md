@@ -26,10 +26,10 @@ If you are on Windows then refer to the **For Windows** section before running t
 **Step 3:** Open the docker engine on your local machine by clicking the icon 
 <br>
 
-**Step 4:** From the root project directory, run `docker-compose build`
+**Step 4:** From the root project directory, run `docker compose build`
 <br>
 
-**Step 5:** Run `bash start.sh`. You might have to run this twice as, in the first go, the data base will be established for connections
+**Step 5:** Run `bash start.sh`. On the first run this creates a local `.env` file (from `.env.example`, with a random `DJANGO_SECRET_KEY`). Never commit `.env`. You might have to run this twice as, in the first go, the data base will be established for connections
 <br>
 
 **Step 6:** The server should have started. Visit [for-Mac](http://0.0.0.0:8000/api) or [for-Windows](http://127.0.0.1:8000/api) on your browser to check the backed server. Visit [localhost:3000](http://localhost:3000) to view the 
@@ -50,12 +50,13 @@ before running `bash start.sh`.
 ## Notes (TO BE UPDATED AFTER DEPLOYMENT)
 - Any dependencies that you would add using **pip** should simply be added to the requirements.txt file instead
 - Admin Panel can be accessed here: [for-Mac](http://0.0.0.0:8000/admin) or [for-Windows](http://127.0.0.1:8000/admin) 
-- Since the program is running locally right now, you would have to create a super user yourself. Watch [this]() tutorial made by our team. 
+- Since the program is running locally right now, you would have to create a super user yourself: `docker compose run web python manage.py createsuperuser`
+- Database migrations are not generated on startup. After changing `fms/models.py`, run `docker compose run web python manage.py makemigrations` and commit the new migration file.
 
 ### Uploading Data (For Testing)
-When running locally, our application will have no games or forums. The admin/website maitainer is supposed to add these while testing. We made this process easier by including a json file that would load up **3 games and 1 admin user** (username=root, password=1234). To load this data, run the following command after Step 6:
+When running locally, our application will have no games or forums. The admin/website maitainer is supposed to add these while testing. We made this process easier by including a json file that would load up **3 games and 3 forums**. To load this data, run the following command after Step 6:
 
-`docker-compose run web python manage.py loaddata test_data.json`
+`docker compose run web python manage.py loaddata test_data.json`
 <br>
 
 ## For Windows
@@ -68,16 +69,14 @@ services:
     image: postgres:13
     volumes:
       - postgres-vol:/var/lib/postgresql/data
-    environment:
-      - POSTGRES_DB=postgres
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
+    env_file: .env
     networks:
       - db
 
   web:
     build: .
     command: python manage.py runserver 0.0.0.0:8000
+    env_file: .env
     volumes:
       - .:/code
     ports:
