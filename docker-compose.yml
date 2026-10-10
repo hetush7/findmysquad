@@ -33,6 +33,10 @@ services:
       dockerfile: Dockerfile
     ports:
       - "3000:3000"
+    volumes:
+      # live-reload source changes; keep the image's node_modules
+      - ./frontend:/frontend
+      - /frontend/node_modules
     stdin_open: true
     depends_on:
       - web

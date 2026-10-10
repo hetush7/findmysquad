@@ -454,7 +454,7 @@ function SessionsPage() {
                 {Array.from({ length: sessions.length }).map((_, idx) => (
                   <Col key={"sessions"+idx}>
                     <Card className="bg-white text-dark">
-                      <CardImg top src={process.env.PUBLIC_URL + sessions[idx].gameImagePath} alt="..."/>
+                      <CardImg top src={sessions[idx].gameImagePath} alt="..."/>
                       <CardHeader>{sessions[idx].sessionName}</CardHeader>
                       <CardBody>
                         <CardText>{sessions[idx].sessionDescription}</CardText>

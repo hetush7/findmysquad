@@ -1,5 +1,6 @@
 // Base address of the Django API. Set REACT_APP_API_URL to point the app at another server.
-const API_URL = (process.env.REACT_APP_API_URL || "http://localhost:8000").replace(/\/+$/, "") + "/api";
+// An empty value means "same origin" (when nginx serves the app and proxies /api).
+const API_URL = (import.meta.env.REACT_APP_API_URL ?? "http://localhost:8000").replace(/\/+$/, "") + "/api";
 
 let redirectingToLogin = false;
 

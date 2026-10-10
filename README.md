@@ -9,7 +9,7 @@
 ## Stack Used
 - **Backend:** Django
 - **Database:** PostgreSQL 
-- **Frontend:** React
+- **Frontend:** React 18 (Vite, Node 20)
 - **Container:** Docker
 - **Deployment:** AWS (TODO)
 
@@ -39,8 +39,8 @@ frontend in action.
 **Step 7:** Refer to Uploading Data section under Notes
 <br>
 
-All backend changes will be visible while the server is running. 
-However, if any changes are made on the frontend i.e React, javascript etc. (basically anything in the frontend folder) then you should stop the server using `CTRL+C` and restart using `bash start.sh clean`. 
+Backend and frontend changes are picked up automatically while the server is running (the frontend uses Vite with hot reload).
+If you change `frontend/package.json` (add or upgrade a dependency), rebuild with `bash start.sh clean`.
 
 **WARNING:** With clean, this script will prune your other docker images and container. 
 

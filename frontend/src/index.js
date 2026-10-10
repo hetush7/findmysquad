@@ -17,13 +17,13 @@
 
 */
 import React from "react";
-import ReactDOM from "react-dom";
+import { createRoot } from "react-dom/client";
 import { BrowserRouter, Route, Redirect, Switch } from "react-router-dom";
 
 // styles
 import "bootstrap/scss/bootstrap.scss";
-import "assets/scss/paper-kit.scss?v=1.3.0";
-import "index.css";
+import "assets/scss/paper-kit.scss";
+import "./index.css";
 
 // pages
 import LandingPage from "views/LandingPage.js";
@@ -43,7 +43,7 @@ import ProfilePage from "views/ProfilePage";
 // others
 API.init();
 
-ReactDOM.render(
+createRoot(document.getElementById("root")).render(
   <BrowserRouter>
     <Switch>
       <Route
@@ -96,6 +96,5 @@ ReactDOM.render(
       />
       <Redirect to="/landing-page" />
     </Switch>
-  </BrowserRouter>,
-  document.getElementById("root")
+  </BrowserRouter>
 );

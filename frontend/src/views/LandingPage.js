@@ -16,6 +16,9 @@
 * The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 */
+import apexLogo from "assets/img/GameLogo_ApexLegendsNew.png";
+import lolLogo from "assets/img/GameLogo_LeagueOfLegendsNew.png";
+import codLogo from "assets/img/GameLogo_CallOfDutyNew.png";
 import React from "react";
 
 // reactstrap components
@@ -64,30 +67,21 @@ function LandingPage() {
                 <img
                   alt="Apex"
                   className="gameImg"
-                  src={
-                    require("assets/img/GameLogo_ApexLegendsNew.png")
-                      .default
-                  }
+                  src={apexLogo}
                 />
               </Col>
               <Col md="4">
                 <img
                   alt="LoL"
                   className="gameImg"
-                  src={
-                    require("assets/img/GameLogo_LeagueOfLegendsNew.png")
-                      .default
-                  }
+                  src={lolLogo}
                 />
               </Col>
               <Col md="4">
                 <img
                   alt="CoD"
                   className="gameImg"
-                  src={
-                    require("assets/img/GameLogo_CallOfDutyNew.png")
-                      .default
-                  }
+                  src={codLogo}
                 />
               </Col>
             </Row>

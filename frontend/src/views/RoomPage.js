@@ -220,7 +220,7 @@ function RoomPage() {
                 <img
                   alt={game ? game.gameName : ""}
                   className="room-hero-logo"
-                  src={process.env.PUBLIC_URL + session.gameImagePath}
+                  src={session.gameImagePath}
                 />
               </Col>
               <Col md="9">
