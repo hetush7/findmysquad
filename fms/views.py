@@ -2,7 +2,7 @@ from django.shortcuts 			import render
 from django.contrib.auth 		import authenticate, login, password_validation
 from django.core.exceptions 	import ValidationError
 from django.core.validators 	import URLValidator
-from django.db.models 			import Q
+from django.db.models 			import Count, Q
 from django.shortcuts 			import get_object_or_404
 from django.utils 				import timezone
 from datetime 					import timedelta
@@ -66,7 +66,7 @@ class SessionDetailView(APIView):
 			id=session_id
 		)
 		private = request.user.is_authenticated and session.has_member(request.user)
-		response_data = self.serializer_class(session, context={'private': private}).data
+		response_data = self.serializer_class(session, context={'private': private, 'user': request.user}).data
 		return Response(response_data, status=status.HTTP_200_OK)
 
 def bad_request(message):
@@ -501,3 +501,31 @@ class NotificationsView(APIView):
 			notifications = notifications.filter(id__in=ids)
 		notifications.update(read=True)
 		return self.get(request)
+
+class EndorseView(APIView):
+
+	# Endorse a squad member: {username, kind, session_id}; both must be in that room
+	def post(self, request, format=None):
+		GameSession.close_expired()
+		session = get_object_or_404(GameSession, id=int_or_none(request.data.get('session_id')))
+		target = get_object_or_404(User, username=request.data.get('username', ''))
+		kind = request.data.get('kind')
+
+		if kind not in dict(Endorsement.KIND_CHOICES):
+			return bad_request('kind must be one of: ' + ', '.join(dict(Endorsement.KIND_CHOICES)) + '.')
+		if target == request.user:
+			return bad_request("You can't endorse yourself.")
+		if not (session.has_member(request.user) and session.has_member(target)):
+			return Response({'detail': 'You can only endorse players in your room.'}, status=status.HTTP_403_FORBIDDEN)
+
+		Endorsement.objects.get_or_create(from_user=request.user, to_user=target, kind=kind)
+		return Response({}, status=status.HTTP_200_OK)
+
+class EndorsementsView(APIView):
+	permission_classes = (permissions.AllowAny,)
+
+	# A player's endorsements by kind, e.g. {"teammate": 3, "skilled": 1}
+	def get(self, request, username, format=None):
+		user = get_object_or_404(User, username=username)
+		counts = user.endorsements_received.values('kind').annotate(total=Count('id'))
+		return Response({row['kind']: row['total'] for row in counts}, status=status.HTTP_200_OK)

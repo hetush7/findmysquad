@@ -471,6 +471,24 @@ export class APIOnline {
     }
 
     /**
+     * A function to endorse a squad member
+     * @returns null on success, otherwise an error message
+     */
+    async endorse(sessionID, username, kind) {
+        const { ok, data } = await request('/endorse', { method: 'POST', body: { session_id: sessionID, username, kind } });
+        return ok ? null : errorMessage(data, 'Could not endorse.');
+    }
+
+    /**
+     * A function to get a player's endorsements
+     * @returns - An object of kind -> count
+     */
+    async getEndorsements(username) {
+        const { ok, data } = await request(`/endorsements/${encodeURIComponent(username)}`, { auth: false });
+        return ok ? data : {};
+    }
+
+    /**
      * A function to get room chat messages
      * @param sessionID - The session whose chat to read
      * @param afterID - Only return messages newer than this message id (omit for the latest messages)

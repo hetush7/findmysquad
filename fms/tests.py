@@ -869,3 +869,51 @@ class NotificationTest(TestCase):
         bob_id = Notification.objects.get(user=self.bob).id
         self.client.post('/api/notifications', {'ids': [bob_id]}, format='json')
         self.assertFalse(Notification.objects.get(id=bob_id).read)
+
+
+#Testing endorsements between squad members
+class EndorsementTest(TestCase):
+
+    def setUp(self):
+        self.client = APIClient()
+        self.host = User.objects.create_user(username='host', password='1X<ISRUkw+tuK')
+        self.player = User.objects.create_user(username='player', password='1X<ISRUkw+tuK')
+        self.outsider = User.objects.create_user(username='outsider', password='1X<ISRUkw+tuK')
+        game = Game.objects.create(game_short_name="Apex", game_name="Apex Legends", description="d", image_path="i")
+        self.session = GameSession.objects.create(created_by=self.host, game=game, max_players=3, session_name="s", description="d", instructions="i")
+        self.session.players.add(self.player)
+
+    def login(self, user):
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {RefreshToken.for_user(user).access_token}')
+
+    def endorse(self, username, kind='teammate'):
+        return self.client.post('/api/endorse', {'username': username, 'kind': kind, 'session_id': self.session.id}, format='json')
+
+    def test_endorse_squad_member(self):
+        self.login(self.player)
+        self.assertEqual(self.endorse('host').status_code, 200)
+        self.assertEqual(self.endorse('host', 'shotcaller').status_code, 200)
+        self.assertEqual(self.endorse('host').status_code, 200)  # repeat is a no-op
+        self.assertEqual(self.client.get('/api/endorsements/host').data, {'teammate': 1, 'shotcaller': 1})
+
+    def test_counts_and_given_in_room(self):
+        self.login(self.player)
+        self.endorse('host')
+        data = self.client.get(f'/api/session/{self.session.id}').data
+        self.assertEqual(data['hostEndorsements'], 1)
+        self.assertEqual(data['players'][0]['endorsements'], 0)
+        self.assertEqual(data['myEndorsements'], {'host': ['teammate']})
+
+    def test_rules(self):
+        self.login(self.player)
+        self.assertEqual(self.endorse('player').status_code, 400)          # yourself
+        self.assertEqual(self.endorse('host', 'legend').status_code, 400)  # unknown kind
+        self.assertEqual(self.endorse('outsider').status_code, 403)        # not in the room
+        self.assertEqual(self.endorse('ghost').status_code, 404)
+        self.login(self.outsider)
+        self.assertEqual(self.endorse('host').status_code, 403)            # you're not in the room
+        self.assertEqual(Endorsement.objects.count(), 0)
+
+    def test_public_counts_for_unknown_user(self):
+        self.assertEqual(self.client.get('/api/endorsements/ghost').status_code, 404)
+        self.assertEqual(self.client.get('/api/endorsements/host').data, {})

@@ -178,6 +178,30 @@
   margin: 0 0 0 auto !important;
 }
 
+.room-endorsements {
+  font-size: 0.85em;
+  font-weight: 700;
+  color: #fbc658;
+  white-space: nowrap;
+}
+
+.room-member-menu {
+  margin-left: auto;
+}
+
+.room-member-menu + .room-kick {
+  margin-left: 0 !important;
+}
+
+.room-member-menu .btn-link {
+  margin: 0;
+  padding: 0 8px;
+  font-size: 1.4em;
+  line-height: 1;
+  color: #66615b;
+  text-decoration: none;
+}
+
 /* Right column */
 .room-card .room-description {
   margin: 12px 0 20px;

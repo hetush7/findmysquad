@@ -21,7 +21,11 @@ import React, { useState } from "react";
 // reactstrap components
 import {
   Alert,
+  DropdownItem,
+  DropdownMenu,
+  DropdownToggle,
   Input,
+  UncontrolledDropdown,
   Badge,
   Button,
   Card,
@@ -42,6 +46,7 @@ import platforms from "assets/data/platforms";
 import { rankRangeLabel, rankAllowed } from "utils/ranks";
 import { closesInLabel } from "utils/time";
 import { roomOptionLabels } from "assets/data/roomOptions";
+import ENDORSEMENT_KINDS from "assets/data/endorsements";
 import { useHistory, useLocation } from "react-router";
 
 import "assets/css/RoomPage.css";
@@ -79,6 +84,33 @@ function GamerTags({ tags }) {
       ))}
     </div>
   );
+}
+
+// Actions on another squad member: endorsements (more actions can be added to this menu)
+function MemberMenu({ username, given, onEndorse }) {
+  return (
+    <UncontrolledDropdown className="room-member-menu">
+      <DropdownToggle color="link" size="sm" aria-label={`Actions for ${username}`}>⋯</DropdownToggle>
+      <DropdownMenu right>
+        <DropdownItem header>Endorse {username}</DropdownItem>
+        {ENDORSEMENT_KINDS.map(kind => {
+          const done = given.includes(kind.value);
+          return (
+            <DropdownItem key={kind.value} disabled={done} onClick={() => onEndorse(username, kind)}>
+              {done ? "✓ " : ""}{kind.label}
+            </DropdownItem>
+          );
+        })}
+      </DropdownMenu>
+    </UncontrolledDropdown>
+  );
+}
+
+function EndorsementCount({ count }) {
+  if (!count) {
+    return null;
+  }
+  return <span className="room-endorsements" title={`${count} endorsement${count === 1 ? "" : "s"}`}>★ {count}</span>;
 }
 
 // TODO: Privacy on data for hidden sections
@@ -240,6 +272,18 @@ function RoomPage() {
     }
   }
 
+  async function endorse(username, kind) {
+    const error = await api.endorse(session.id, username, kind.value);
+    if (error === null) {
+      setNotice({ color: "success", text: `You endorsed ${username} as "${kind.label}".` });
+      refreshSession();
+    } else {
+      setNotice({ color: "danger", text: error });
+    }
+  }
+
+  const givenTo = username => (session.myEndorsements || {})[username] || [];
+
   async function copy(text, label) {
     try {
       await navigator.clipboard.writeText(text);
@@ -311,9 +355,13 @@ function RoomPage() {
                             {session.hostRank && <Badge color="info" pill>{session.hostRank}</Badge>}
                             <Badge color="warning" pill>Host</Badge>
                             {isHost && <Badge color="default" pill>You</Badge>}
+                            <EndorsementCount count={session.hostEndorsements} />
                           </div>
                           <GamerTags tags={session.hostGamerTags} />
                         </div>
+                        {isMember && !isHost && (
+                          <MemberMenu username={session.hostUsername} given={givenTo(session.hostUsername)} onEndorse={endorse} />
+                        )}
                       </li>
                       {session.players.map(player => (
                         <li className="room-player" key={player.userID}>
@@ -323,9 +371,13 @@ function RoomPage() {
                               <span className="room-player-name">{player.username}</span>
                               {player.rank && <Badge color="info" pill>{player.rank}</Badge>}
                               {player.username === currentUser && <Badge color="default" pill>You</Badge>}
+                              <EndorsementCount count={player.endorsements} />
                             </div>
                             <GamerTags tags={player.gamerTags} />
                           </div>
+                          {isMember && player.username !== currentUser && (
+                            <MemberMenu username={player.username} given={givenTo(player.username)} onEndorse={endorse} />
+                          )}
                           {isHost && (
                             <Button
                               className="btn-round room-kick"

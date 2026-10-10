@@ -48,6 +48,7 @@ import Footer from "components/Footers/PageFooter.js";
 import "assets/css/demo.css"
 import API from "api/API";
 import platforms from "assets/data/platforms";
+import ENDORSEMENT_KINDS from "assets/data/endorsements";
 
 function ProfilePage() {
 
@@ -70,6 +71,7 @@ function ProfilePage() {
   const [rankGames, setRankGames] = useState([]); // games that have ranks
   const [myRanks, setMyRanks] = useState({}); // game id -> rank
   const [ranksFeedback, setRanksFeedback] = useState(null); // { color, text }
+  const [endorsements, setEndorsements] = useState({}); // kind -> count
   const [profilePic, setProfilePic] = useState(placeholder) // Profile Pic Image URL
   const current_user = localStorage.getItem('current_user') // current user
 
@@ -268,6 +270,9 @@ function ProfilePage() {
       })
       api.getGames().then(games => setRankGames(games.filter(game => game.ranks && game.ranks.length > 0)))
       api.getMyRanks().then(ranks => setMyRanks(ranks))
+      if (current_user) {
+        api.getEndorsements(current_user).then(counts => setEndorsements(counts))
+      }
 
       document.body.classList.add("profile-page");
       return function cleanup() {
@@ -294,6 +299,12 @@ function ProfilePage() {
               <h4 className="title">
                 {current_user}
               </h4>
+              <p className="profile-endorsements">
+                {ENDORSEMENT_KINDS.filter(kind => endorsements[kind.value]).length === 0
+                  ? "No endorsements yet"
+                  : ENDORSEMENT_KINDS.filter(kind => endorsements[kind.value])
+                      .map(kind => `★ ${kind.label} ×${endorsements[kind.value]}`).join("  ·  ")}
+              </p>
             </div>
           </div>
           <Row>

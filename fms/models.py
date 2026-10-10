@@ -169,3 +169,17 @@ class Notification(models.Model):
 
     def __str__(self):
         return str(self.user) + ": " + self.text
+
+class Endorsement(models.Model):
+    KIND_CHOICES = [('teammate', 'Good teammate'), ('shotcaller', 'Shotcaller'), ('friendly', 'Friendly'), ('skilled', 'Skilled')]
+
+    from_user  = models.ForeignKey(User, on_delete=models.CASCADE, related_name='endorsements_given')
+    to_user    = models.ForeignKey(User, on_delete=models.CASCADE, related_name='endorsements_received')
+    kind       = models.CharField(max_length=20, choices=KIND_CHOICES)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['from_user', 'to_user', 'kind'], name='one_endorsement_per_kind')]
+
+    def __str__(self):
+        return str(self.from_user) + " endorsed " + str(self.to_user) + " (" + self.kind + ")"

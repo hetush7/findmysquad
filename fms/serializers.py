@@ -1,6 +1,7 @@
 from django.contrib.auth import password_validation
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from django.db import models
 from .models import *
 
 class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -139,11 +140,26 @@ class SessionSerializer(serializers.ModelSerializer):
 		for player in data['players']:
 			player['rank'] = ranks.get(player['userID'])
 
+		# total endorsements each member has received
+		member_ids = [obj.created_by_id] + [p['userID'] for p in data['players']]
+		counts = dict(Endorsement.objects.filter(to_user_id__in=member_ids).values('to_user_id')
+		              .annotate(total=models.Count('id')).values_list('to_user_id', 'total'))
+		data['hostEndorsements'] = counts.get(obj.created_by_id, 0)
+		for player in data['players']:
+			player['endorsements'] = counts.get(player['userID'], 0)
+
 		if not self.context.get('private'):
 			data.pop('joinDescription')
 			data.pop('hostGamerTags')
 			for player in data['players']:
 				player.pop('gamerTags')
+		elif self.context.get('user'):
+			# which endorsements the viewer has already given to each member, e.g. {"bob": ["teammate"]}
+			given = {}
+			for username, kind in Endorsement.objects.filter(from_user=self.context['user'], to_user_id__in=member_ids) \
+					.values_list('to_user__username', 'kind'):
+				given.setdefault(username, []).append(kind)
+			data['myEndorsements'] = given
 		return data
 
 class GameSerializer(serializers.ModelSerializer):
