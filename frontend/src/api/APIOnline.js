@@ -581,6 +581,27 @@ export class APIOnline {
     }
 
     /**
+     * The WebSocket address for a room's live chat (same host as the API, /ws/ instead of /api/)
+     */
+    chatSocketUrl(sessionID) {
+        const path = `/ws/session-chat/${sessionID}/`;
+        if (API_URL.startsWith('http')) {
+            return API_URL.replace(/^http/, 'ws').replace(/\/api$/, '') + path;
+        }
+        return (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host + path;
+    }
+
+    /** The current access token (sent as the first WebSocket message) */
+    getAccessToken() {
+        return localStorage.getItem('access_token');
+    }
+
+    /** Get a fresh access token, e.g. when the WebSocket says the old one expired */
+    renewAccessToken() {
+        return refreshAccessToken();
+    }
+
+    /**
      * A function to get room chat messages
      * @param sessionID - The session whose chat to read
      * @param afterID - Only return messages newer than this message id (omit for the latest messages)

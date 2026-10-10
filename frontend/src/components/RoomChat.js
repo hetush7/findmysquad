@@ -4,13 +4,20 @@ import { Button, Form, Input } from "reactstrap";
 import API from "api/API";
 
 const POLL_INTERVAL_MS = 3000;
+const LIVE_POLL_INTERVAL_MS = 30000; // safety net while the WebSocket is connected
 const MAX_MESSAGE_LENGTH = 500;
+const MAX_RECONNECT_DELAY_MS = 30000;
+
+// close codes from the server (fms/consumers.py)
+const CLOSE_UNAUTHORIZED = 4401;
+const CLOSE_FORBIDDEN = 4403;
 
 function formatTime(isoString) {
   return new Date(isoString).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-// Squad chat for a room. Polls the server for new messages while the tab is visible.
+// Squad chat for a room. New messages arrive live over a WebSocket; if that isn't available the chat
+// polls the server every few seconds instead (and keeps trying to reconnect).
 // onAccessLost is called when the server says the user is no longer a squad member.
 function RoomChat({ sessionID, currentUser, onAccessLost }) {
   const api = API.getApi();
@@ -21,11 +28,14 @@ function RoomChat({ sessionID, currentUser, onAccessLost }) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState(null);
   const [reported, setReported] = useState({}); // message id -> true
+  const [live, setLive] = useState(false);
 
   const lastIdRef = React.useRef(null);
   const pollingRef = React.useRef(false);
   const listRef = React.useRef(null);
   const stickToBottomRef = React.useRef(true);
+  const liveRef = React.useRef(false);
+  const lastPollRef = React.useRef(0);
 
   // merge new messages in, skipping any we already have
   const addMessages = React.useCallback((incoming) => {
@@ -44,6 +54,11 @@ function RoomChat({ sessionID, currentUser, onAccessLost }) {
     if (pollingRef.current || (skipIfHidden && document.hidden)) {
       return;
     }
+    // while the WebSocket is live, polling is only a slow safety net
+    if (skipIfHidden && liveRef.current && Date.now() - lastPollRef.current < LIVE_POLL_INTERVAL_MS) {
+      return;
+    }
+    lastPollRef.current = Date.now();
     pollingRef.current = true;
     const result = await api.getChatMessages(sessionID, lastIdRef.current);
     pollingRef.current = false;
@@ -69,6 +84,74 @@ function RoomChat({ sessionID, currentUser, onAccessLost }) {
       document.removeEventListener("visibilitychange", pollIfVisible);
     };
   }, [poll]);
+
+  // live messages over a WebSocket, reconnecting with a growing delay if the connection drops
+  React.useEffect(() => {
+    let socket = null;
+    let stopped = false;
+    let retryTimer = null;
+    let delay = 2000;
+    let renewedToken = false;
+
+    const setLiveState = value => {
+      liveRef.current = value;
+      setLive(value);
+    };
+
+    function scheduleReconnect() {
+      if (stopped) {
+        return;
+      }
+      retryTimer = setTimeout(connect, delay);
+      delay = Math.min(delay * 2, MAX_RECONNECT_DELAY_MS);
+    }
+
+    function connect() {
+      if (typeof WebSocket === "undefined") {
+        return;
+      }
+      socket = new WebSocket(api.chatSocketUrl(sessionID));
+      socket.onopen = () => socket.send(JSON.stringify({ type: "auth", token: api.getAccessToken() }));
+      socket.onmessage = event => {
+        const data = JSON.parse(event.data);
+        if (data.type === "ready") {
+          delay = 2000;
+          renewedToken = false;
+          setLiveState(true);
+          poll(false); // catch anything sent while we were connecting
+        } else if (data.type === "message") {
+          addMessages([data.message]);
+        }
+      };
+      socket.onclose = async event => {
+        setLiveState(false);
+        if (stopped) {
+          return;
+        }
+        if (event.code === CLOSE_FORBIDDEN) {
+          onAccessLost();
+          return;
+        }
+        if (event.code === CLOSE_UNAUTHORIZED && !renewedToken) {
+          renewedToken = true;
+          if (await api.renewAccessToken()) {
+            connect();
+            return;
+          }
+        }
+        scheduleReconnect();
+      };
+    }
+
+    connect();
+    return function cleanup() {
+      stopped = true;
+      clearTimeout(retryTimer);
+      if (socket) {
+        socket.close();
+      }
+    };
+  }, [api, sessionID, addMessages, poll, onAccessLost]);
 
   // keep the newest message in view, unless the user has scrolled up to read history
   React.useEffect(() => {
@@ -142,6 +225,7 @@ function RoomChat({ sessionID, currentUser, onAccessLost }) {
       </div>
 
       {error && <p className="room-chat-error">{error}</p>}
+      {live && <p className="room-chat-live" title="New messages arrive instantly">● Live</p>}
 
       <Form className="room-chat-form" onSubmit={send}>
         <Input

@@ -1153,3 +1153,87 @@ class DiscordHelpersTest(TestCase):
             {'type': 'playstation', 'name': 'Hidden', 'verified': False},
         ])
         self.assertEqual(tags, {'riot': 'Owl#OCE', 'xbox': 'x' * 50})
+
+
+#Testing live chat over WebSockets
+from asgiref.sync import async_to_sync, sync_to_async
+from channels.testing import WebsocketCommunicator
+from django.test import TransactionTestCase
+from src.asgi import application
+
+
+class LiveChatTest(TransactionTestCase):
+
+    def setUp(self):
+        self.host = User.objects.create_user(username='host', password='1X<ISRUkw+tuK')
+        self.player = User.objects.create_user(username='player', password='1X<ISRUkw+tuK')
+        self.outsider = User.objects.create_user(username='outsider', password='1X<ISRUkw+tuK')
+        game = Game.objects.create(game_short_name="Apex", game_name="Apex Legends", description="d", image_path="i")
+        self.session = GameSession.objects.create(created_by=self.host, game=game, max_players=3, session_name="s", description="d", instructions="i")
+        self.session.players.add(self.player)
+        # creating tokens writes to the database, so do it here rather than inside the async scenarios
+        self.tokens = {user.id: str(RefreshToken.for_user(user).access_token) for user in (self.host, self.player, self.outsider)}
+
+    def token(self, user):
+        return self.tokens[user.id]
+
+    def api(self, user):
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.token(user)}')
+        return client
+
+    async def connect(self, user=None, token=None):
+        communicator = WebsocketCommunicator(application, f'/ws/session-chat/{self.session.id}/')
+        connected, _ = await communicator.connect()
+        self.assertTrue(connected)
+        await communicator.send_json_to({'type': 'auth', 'token': token if token is not None else self.token(user)})
+        return communicator
+
+    async def post(self, user, text):
+        return await sync_to_async(lambda: self.api(user).post(f'/api/session-chat/{self.session.id}', {'text': text}, format='json'))()
+
+    def test_member_receives_messages_live(self):
+        async def scenario():
+            ws = await self.connect(self.player)
+            self.assertEqual(await ws.receive_json_from(), {'type': 'ready'})
+            resp = await self.post(self.host, 'hello squad')
+            self.assertEqual(resp.status_code, 201)
+            event = await ws.receive_json_from(timeout=2)
+            self.assertEqual(event['type'], 'message')
+            self.assertEqual((event['message']['text'], event['message']['username']), ('hello squad', 'host'))
+            await ws.disconnect()
+        async_to_sync(scenario)()
+
+    def test_outsider_and_bad_token_are_rejected(self):
+        async def scenario():
+            ws = await self.connect(self.outsider)
+            self.assertEqual((await ws.receive_output(timeout=2))['code'], 4403)
+            ws = await self.connect(token='not-a-token')
+            self.assertEqual((await ws.receive_output(timeout=2))['code'], 4401)
+        async_to_sync(scenario)()
+
+    def test_blocked_sender_is_filtered(self):
+        Block.objects.create(blocker=self.player, blocked=self.host)
+        async def scenario():
+            ws = await self.connect(self.player)
+            await ws.receive_json_from()
+            await self.post(self.host, 'you will not see this')
+            self.assertTrue(await ws.receive_nothing(timeout=0.5))
+            await ws.disconnect()
+        async_to_sync(scenario)()
+
+    def test_kicked_player_is_disconnected(self):
+        async def scenario():
+            ws = await self.connect(self.player)
+            await ws.receive_json_from()
+            await sync_to_async(lambda: self.api(self.host).put('/api/create-session', {'action': 2, 'session_id': self.session.id, 'player_id': self.player.id}, format='json'))()
+            self.assertEqual((await ws.receive_output(timeout=2))['code'], 4403)
+        async_to_sync(scenario)()
+
+    def test_closing_room_disconnects_everyone(self):
+        async def scenario():
+            ws = await self.connect(self.player)
+            await ws.receive_json_from()
+            await sync_to_async(lambda: self.api(self.host).put('/api/create-session', {'action': 1, 'session_id': self.session.id}, format='json'))()
+            self.assertEqual((await ws.receive_output(timeout=2))['code'], 4403)
+        async_to_sync(scenario)()

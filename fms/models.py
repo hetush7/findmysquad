@@ -79,7 +79,15 @@ class GameSession(models.Model):
     @classmethod
     def close_expired(cls):
         # Rooms close themselves when their time runs out (their chat goes with them)
-        return cls.objects.filter(expires_at__lte=timezone.now()).delete()
+        expired = cls.objects.filter(expires_at__lte=timezone.now())
+        expired_ids = list(expired.values_list('id', flat=True))
+        if not expired_ids:
+            return (0, {})
+        result = cls.objects.filter(id__in=expired_ids).delete()
+        from . import live
+        for session_id in expired_ids:
+            live.session_closed(session_id)
+        return result
 
     def extend(self, hours=1):
         # Keep the room open longer, but never more than MAX_ROOM_HOURS from now

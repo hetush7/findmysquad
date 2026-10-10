@@ -33,6 +33,7 @@ ALLOWED_HOSTS = os.environ.get('DJANGO_ALLOWED_HOSTS', '0.0.0.0,localhost,127.0.
 # Application definition
 
 INSTALLED_APPS = [
+    'daphne',  # makes `runserver` serve WebSockets too (must come before staticfiles)
     'fms',
     'django.contrib.admin',
     'django.contrib.auth',
@@ -42,6 +43,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'rest_framework_simplejwt.token_blacklist',
+    'channels',
 ]
 
 MIDDLEWARE = [
@@ -90,6 +92,15 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'src.wsgi.application'
+ASGI_APPLICATION = 'src.asgi.application'
+
+# Live chat uses Django Channels. Several server processes need a shared Redis channel layer
+# (set REDIS_URL, e.g. redis://redis:6379/0); one process (development, tests) can use memory.
+if os.environ.get('REDIS_URL'):
+    CHANNEL_LAYERS = {'default': {'BACKEND': 'channels_redis.core.RedisChannelLayer',
+                                  'CONFIG': {'hosts': [os.environ['REDIS_URL']]}}}
+else:
+    CHANNEL_LAYERS = {'default': {'BACKEND': 'channels.layers.InMemoryChannelLayer'}}
 
 
 # Database

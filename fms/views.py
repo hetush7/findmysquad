@@ -18,7 +18,7 @@ from django.core import signing
 import logging
 import secrets
 
-from . import discord
+from . import discord, live
 
 from .serializers 				import *
 from .models 					import *
@@ -148,10 +148,12 @@ class SessionView(APIView):
 			if current_session.created_by == current_user:
 				# the host leaving closes the room
 				current_session.delete()
+				live.session_closed(session_id)
 				return Response({}, status=status.HTTP_200_OK)
 			if not current_session.players.filter(id=current_user.id).exists():
 				return bad_request('You are not in this room.')
 			current_session.players.remove(current_user)
+			live.member_removed(current_session.id, current_user.id)
 			return Response({}, status=status.HTTP_200_OK)
 
 		if action == self.KICK:
@@ -161,6 +163,7 @@ class SessionView(APIView):
 			if player is None:
 				return bad_request('That player is not in this room.')
 			current_session.players.remove(player)
+			live.member_removed(current_session.id, player.id)
 			return Response({}, status=status.HTTP_200_OK)
 
 		if action == self.EXTEND:
@@ -453,6 +456,7 @@ class SessionChatView(APIView):
 		serializer = self.serializer_class(data=request.data)
 		if serializer.is_valid():
 			serializer.save(session=session, sender=request.user)
+			live.chat_message(session.id, serializer.data, request.user.id)
 			return Response(serializer.data, status=status.HTTP_201_CREATED)
 		return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -567,6 +571,9 @@ class BlocksView(APIView):
 		FriendRequests.objects.filter(Q(sender=request.user, receiver=target) | Q(sender=target, receiver=request.user)).delete()
 		for session in GameSession.objects.filter(created_by=request.user, players=target):
 			session.players.remove(target)
+			live.member_removed(session.id, target.id)
+		for session in GameSession.objects.filter(Q(created_by=request.user) | Q(players=request.user)).distinct():
+			live.blocks_changed(session.id, request.user.id)
 		return self.get(request)
 
 class UnblockView(APIView):

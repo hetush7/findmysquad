@@ -329,6 +329,13 @@
   color: #f5593d;
 }
 
+.room-chat-live {
+  margin: 6px 0 0;
+  font-size: 0.75em;
+  font-weight: 700;
+  color: #6bd098;
+}
+
 .room-chat-form {
   display: flex;
   gap: 8px;
