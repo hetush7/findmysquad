@@ -30,6 +30,8 @@ function ProfilePageHeader() {
   React.useEffect(() => {
     if (window.innerWidth < 991) {
       const updateScroll = () => {
+        // the header may already be unmounted when a late scroll event fires
+        if (!pageHeader.current) return;
         let windowScrollTop = window.pageYOffset / 3;
         pageHeader.current.style.transform =
           "translate3d(0," + windowScrollTop + "px,0)";

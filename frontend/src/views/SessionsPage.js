@@ -58,41 +58,16 @@ function SessionsPage() {
 
   document.documentElement.classList.remove("nav-open");
   
-  const [games,setGames] = useState(() => {
-    if(sessionStorage.getItem("games")) {
-      return sessionStorage.getItem("games")
-    } else {
-      fetchGames();
-      return dummy;
-    }
-  });
+  const [games, setGames] = useState(dummy);
+  const [sessions, setSessionsData] = useState([]);
 
-  const [sessions, setSessionsData] = useState(() => {
-    if (sessionStorage.getItem("gameSessions")) {
-      return sessionStorage.getItem("gameSessions")
-    } else {
-      fetchSessions();
-      return [{}]
-    }
-  });
-
-  async function fetchGames() {   
-    var allGames = await api.getGames()
-    sessionStorage.setItem("games", JSON.stringify(allGames));
-  }
-
-  async function fetchSessions() {
-    var allSessions = await api.getSessions([])
-    console.log(allSessions);
-    sessionStorage.setItem("gameSessions", JSON.stringify(allSessions));
-  }
-  
+  // load games and sessions once the page mounts
   React.useEffect(() => {
-    fetchGames()
-    gamesAPICallback();
-
-    fetchSessions()
-    sessionsAPICallback()
+    api.getGames().then(allGames => {
+      setGames(allGames);
+      setFormGame(allGames[0].id);
+    });
+    api.getSessions([]).then(allSessions => setSessionsData(allSessions));
 
     document.body.classList.add("sessions-page");
     return function cleanup() {
@@ -100,27 +75,6 @@ function SessionsPage() {
     };
     // eslint-disable-next-line
   }, []);
-
-  function gamesAPICallback() {
-    var getGames = sessionStorage.getItem("games");
-    if(getGames) {
-      var jsonGames = JSON.parse(sessionStorage.getItem("games"))
-      setGames(jsonGames)
-      setFormGame(jsonGames[0].id)
-    } else { 
-        window.location.reload();
-    }
-  }
-
-  function sessionsAPICallback() {
-    var getSessions = sessionStorage.getItem("gameSessions");
-    if (getSessions) {
-      var jsonSessions = JSON.parse(sessionStorage.getItem("gameSessions"))
-      setSessionsData(jsonSessions)
-    } else {
-      window.location.reload();
-    }
-  }
   
   // set state hook for filter values
   const [filterVal, setFilterVal] = useState([]);
@@ -134,9 +88,10 @@ function SessionsPage() {
     }
   }
 
-  // add sessionID to web session storage
-  function roomDetails(session) {
+  // add sessionID to web session storage and open the room
+  function openRoom(session) {
     sessionStorage.setItem("sessionID", session.id);
+    history.push(`/room-page?id=${session.id}`);
   }
 
   // update sessions list with new filtered data
@@ -214,7 +169,7 @@ function SessionsPage() {
     if ( newSession > 0){
       document.getElementById("createFeedback").hidden = true;
       sessionStorage.setItem("sessionID", newSession);
-      redirect();
+      redirect(newSession);
     } else {
       document.getElementById("createFeedback").innerHTML = "Error creating session";
       document.getElementById("createFeedback").hidden = false;
@@ -224,8 +179,8 @@ function SessionsPage() {
   // redirect to rooom page
   let history = useHistory();
   const { state } = useLocation();
-  function redirect() {
-    const { from } = state || { from: { pathname: "/room-page" } };
+  function redirect(sessionID) {
+    const { from } = state || { from: { pathname: `/room-page?id=${sessionID}` } };
     history.push(from.pathname)
   }
   
@@ -412,7 +367,7 @@ function SessionsPage() {
                         <CardText>{sessions[idx].sessionDescription}</CardText>
                         <CardText>Hosted by: <b>{sessions[idx].hostUsername}</b></CardText>
                       </CardBody>
-                      <Button color="primary" onClick={ () => roomDetails(sessions[idx]) } href="/room-page" >Join</Button>
+                      <Button color="primary" onClick={ () => openRoom(sessions[idx]) }>Join</Button>
                     </Card>
                   </Col>
                 ))}
