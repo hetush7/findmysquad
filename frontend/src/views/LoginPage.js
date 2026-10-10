@@ -60,7 +60,6 @@ function LoginPage() {
           if (!data) {
             return;
           }
-          localStorage.setItem('access_token', data.access)
 
           const currUser = await api.currentUserCheck();
           if (currUser) {

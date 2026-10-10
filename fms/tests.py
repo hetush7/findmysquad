@@ -587,3 +587,46 @@ class InputValidationTest(TestCase):
             self.assertEqual(self.client.post('/api/profile-image', {'image_url': bad_url}, format='json').status_code, 400, bad_url)
         self.assertEqual(self.client.post('/api/profile-image', {'image_url': 'https://example.com/me.png'}, format='json').status_code, 200)
         self.assertEqual(self.client.get('/api/profile-image').data, {'image_url': 'https://example.com/me.png'})
+
+
+#Testing short-lived access tokens, refresh and logout
+class TokenTest(TestCase):
+
+    def setUp(self):
+        self.client = APIClient()
+        self.password = '1X<ISRUkw+tuK'
+        User.objects.create_user(username='player', password=self.password)
+
+    def login(self):
+        resp = self.client.post('/api/token', {'username': 'player', 'password': self.password}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        return resp.data
+
+    def test_access_token_is_short_lived(self):
+        from rest_framework_simplejwt.tokens import AccessToken
+        access = AccessToken(self.login()['access'])
+        lifetime = access['exp'] - access['iat']
+        self.assertEqual(lifetime, 15 * 60)
+
+    def test_refresh_rotates_and_revokes_old_token(self):
+        tokens = self.login()
+        resp = self.client.post('/api/token/refresh', {'refresh': tokens['refresh']}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('access', resp.data)
+        self.assertNotEqual(resp.data['refresh'], tokens['refresh'])
+
+        # the new access token works
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {resp.data['access']}")
+        self.assertEqual(self.client.get('/api/user-check').data, {'username': 'player'})
+
+        # the old refresh token was revoked by the rotation
+        self.client.credentials()
+        self.assertEqual(self.client.post('/api/token/refresh', {'refresh': tokens['refresh']}, format='json').status_code, 401)
+
+    def test_logout_revokes_refresh_token(self):
+        tokens = self.login()
+        self.assertEqual(self.client.post('/api/logout', {'refresh': tokens['refresh']}, format='json').status_code, 200)
+        self.assertEqual(self.client.post('/api/token/refresh', {'refresh': tokens['refresh']}, format='json').status_code, 401)
+
+    def test_refresh_with_garbage_token(self):
+        self.assertEqual(self.client.post('/api/token/refresh', {'refresh': 'nonsense'}, format='json').status_code, 401)

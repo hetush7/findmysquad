@@ -1,6 +1,6 @@
 from django.urls import path
 from .views import * 
-from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.views import TokenBlacklistView, TokenRefreshView
 
 
 urlpatterns = [
@@ -22,5 +22,7 @@ urlpatterns = [
     path('session-chat/<int:session_id>/report', ReportChatMessageView.as_view()),
     path('update-password', UpdatePasswordView.as_view()),
     path('token', LoginView.as_view()),
+    path('token/refresh', TokenRefreshView.as_view()),
+    path('logout', TokenBlacklistView.as_view()),
 	path('user-check', CurrentUserCheck.as_view()),
 ]

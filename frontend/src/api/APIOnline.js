@@ -4,10 +4,15 @@ const API_URL = (import.meta.env.REACT_APP_API_URL ?? "http://localhost:8000").r
 
 let redirectingToLogin = false;
 
+function clearTokens() {
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('refresh_token');
+    localStorage.removeItem('current_user');
+}
+
 // Called when the server says the user isn't (or is no longer) logged in.
 function handleLoggedOut() {
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('current_user');
+    clearTokens();
     if (!redirectingToLogin) {
         redirectingToLogin = true;
         alert('Please log in to continue.');
@@ -15,31 +20,72 @@ function handleLoggedOut() {
     }
 }
 
-/**
- * Shared request helper for every API call.
- * @param path - API path, e.g. "/game-info"
- * @param options.method - HTTP method (default GET)
- * @param options.body - Object sent as JSON
- * @param options.redirectOn401 - Send the user to the login page when the server returns 401 (default true)
- * @returns { ok, status, data } - status is 0 when the server couldn't be reached
- */
-async function request(path, { method = 'GET', body, redirectOn401 = true } = {}) {
+function storeTokens({ access, refresh }) {
+    localStorage.setItem('access_token', access);
+    if (refresh) {
+        localStorage.setItem('refresh_token', refresh);
+    }
+}
+
+// Access tokens expire after 15 minutes. Get a new one with the refresh token; concurrent
+// callers share one refresh request, because each refresh revokes the previous refresh token.
+let refreshInFlight = null;
+function refreshAccessToken() {
+    const refresh = localStorage.getItem('refresh_token');
+    if (!refresh) {
+        return Promise.resolve(false);
+    }
+    if (!refreshInFlight) {
+        refreshInFlight = fetch(API_URL + '/token/refresh', {
+            method: 'POST',
+            headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+            body: JSON.stringify({ refresh }),
+        })
+            .then(async response => {
+                if (!response.ok) {
+                    return false;
+                }
+                storeTokens(await response.json());
+                return true;
+            })
+            .catch(() => false)
+            .finally(() => { refreshInFlight = null; });
+    }
+    return refreshInFlight;
+}
+
+async function send(path, method, body, withToken) {
     const headers = { 'Accept': 'application/json' };
     const token = localStorage.getItem('access_token');
-    if (token) {
+    if (withToken && token) {
         headers['Authorization'] = `Bearer ${token}`;
     }
     if (body !== undefined) {
         headers['Content-Type'] = 'application/json';
     }
+    return fetch(API_URL + path, {
+        method,
+        headers,
+        body: body === undefined ? undefined : JSON.stringify(body),
+    });
+}
 
+/**
+ * Shared request helper for every API call.
+ * @param path - API path, e.g. "/game-info"
+ * @param options.method - HTTP method (default GET)
+ * @param options.body - Object sent as JSON
+ * @param options.auth - Send the access token, and renew it once if it has expired (default true)
+ * @param options.redirectOn401 - Send the user to the login page if they still aren't authorised (default true)
+ * @returns { ok, status, data } - status is 0 when the server couldn't be reached
+ */
+async function request(path, { method = 'GET', body, auth = true, redirectOn401 = true } = {}) {
     let response;
     try {
-        response = await fetch(API_URL + path, {
-            method,
-            headers,
-            body: body === undefined ? undefined : JSON.stringify(body),
-        });
+        response = await send(path, method, body, auth);
+        if (response.status === 401 && auth && localStorage.getItem('access_token') && await refreshAccessToken()) {
+            response = await send(path, method, body, auth);
+        }
     } catch {
         return { ok: false, status: 0, data: { detail: 'Could not reach the server.' } };
     }
@@ -51,8 +97,12 @@ async function request(path, { method = 'GET', body, redirectOn401 = true } = {}
         // empty or non-JSON body
     }
 
-    if (response.status === 401 && redirectOn401) {
-        handleLoggedOut();
+    if (response.status === 401 && auth) {
+        if (redirectOn401) {
+            handleLoggedOut();
+        } else {
+            clearTokens();
+        }
     }
     return { ok: response.ok, status: response.status, data };
 }
@@ -185,6 +235,7 @@ export class APIOnline {
         const { status, data } = await request('/register-user', {
             method: 'POST',
             body: { username: userName, email: emailID, password: pass },
+            auth: false,
         });
         if (status === 201) {
             return data;
@@ -194,16 +245,18 @@ export class APIOnline {
     }
 
     /**
-     * A function to log in
+     * A function to log in. Stores the access and refresh tokens.
      * @returns - The access/refresh tokens, or null if login failed (errors are shown to the user)
      */
     async loginUser(userName, pass) {
         const { status, data } = await request('/token', {
             method: 'POST',
             body: { username: userName, password: pass },
-            redirectOn401: false,
+            auth: false,
         });
         if (status === 200) {
+            storeTokens(data);
+            redirectingToLogin = false;
             return data;
         }
         alert(status === 401 ? 'Authentication Failed! Invalid login details.' : errorMessage(data, 'Something went wrong. Please try again.'));
@@ -219,9 +272,15 @@ export class APIOnline {
         return status === 200 ? data.username : false;
     }
 
+    /**
+     * A function to log out: forgets the tokens locally and revokes the refresh token on the server
+     */
     logoutUser() {
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('current_user');
+        const refresh = localStorage.getItem('refresh_token');
+        clearTokens();
+        if (refresh) {
+            request('/logout', { method: 'POST', body: { refresh }, auth: false });
+        }
     }
 
     /**

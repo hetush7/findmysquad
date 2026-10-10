@@ -70,7 +70,6 @@ function RegisterPage() {
         if (!data) {
           return;
         }
-        localStorage.setItem('access_token', data.access)
 
         let result = await api.currentUserCheck();
         if (result) {
