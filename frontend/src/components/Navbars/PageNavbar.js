@@ -18,7 +18,7 @@
 */
 import React from "react";
 import API from "api/API";
-import NotificationBell from "components/NotificationBell";
+import NotificationBell, { useNotifications } from "components/NotificationBell";
 
 import { Link } from "react-router-dom";
 // nodejs library that concatenates strings
@@ -43,6 +43,8 @@ function PageNavbar() {
   const [navbarColor, setNavbarColor] = React.useState("navbar-transparent");
   const [navbarCollapse, setNavbarCollapse] = React.useState(false);
   const [hrefLink,setLink] = React.useState(link);
+  const loggedIn = hrefLink === "/profile-page";
+  const notifications = useNotifications(loggedIn);
 
   const toggleNavbarCollapse = () => {
     setNavbarCollapse(!navbarCollapse);
@@ -110,6 +112,7 @@ function PageNavbar() {
           >
             Find My Squad
           </NavbarBrand>
+          {loggedIn && <NotificationBell notifications={notifications} inNav={false} className="notification-bell-mobile d-lg-none" />}
           <button
             aria-expanded={navbarCollapse}
             className={classnames("navbar-toggler navbar-toggler", {
@@ -158,7 +161,7 @@ function PageNavbar() {
                 Forums
               </NavLink>
             </NavItem>
-            {hrefLink === "/profile-page" && <NotificationBell />}
+            {loggedIn && <NotificationBell notifications={notifications} className="d-none d-lg-block" />}
             <NavItem>
               <Button
                 className="btn-round"

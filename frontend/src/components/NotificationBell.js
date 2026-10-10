@@ -7,41 +7,43 @@ import "assets/css/NotificationBell.css";
 
 const POLL_INTERVAL_MS = 30000;
 
-// Navbar bell with unread count; lists friend requests, accepted requests and room invites.
-function NotificationBell() {
+// Notification data for the navbar: polls every 30s while the tab is visible.
+// Shared by the desktop and mobile bells so the server is only polled once.
+export function useNotifications(enabled) {
   const api = API.getApi();
   const history = useHistory();
   const [unread, setUnread] = useState(0);
   const [items, setItems] = useState([]);
 
-  const load = React.useCallback(async () => {
-    if (document.hidden) {
-      return;
-    }
-    const data = await api.getNotifications();
+  const apply = data => {
     if (data) {
       setUnread(data.unread);
       setItems(data.items);
     }
-  }, [api]);
+  };
+
+  // skipIfHidden: background tabs don't keep polling, but the first load always runs
+  const load = React.useCallback(async (skipIfHidden = false) => {
+    if (!enabled || (skipIfHidden && document.hidden)) {
+      return;
+    }
+    apply(await api.getNotifications());
+  }, [api, enabled]);
 
   React.useEffect(() => {
+    const loadIfVisible = () => load(true);
     load();
-    const interval = setInterval(load, POLL_INTERVAL_MS);
-    document.addEventListener("visibilitychange", load);
+    const interval = setInterval(loadIfVisible, POLL_INTERVAL_MS);
+    document.addEventListener("visibilitychange", loadIfVisible);
     return function cleanup() {
       clearInterval(interval);
-      document.removeEventListener("visibilitychange", load);
+      document.removeEventListener("visibilitychange", loadIfVisible);
     };
   }, [load]);
 
   async function open(item) {
     if (!item.read) {
-      const data = await api.markNotificationsRead({ ids: [item.id] });
-      if (data) {
-        setUnread(data.unread);
-        setItems(data.items);
-      }
+      apply(await api.markNotificationsRead({ ids: [item.id] }));
     }
     if (item.link) {
       history.push(item.link);
@@ -49,16 +51,20 @@ function NotificationBell() {
   }
 
   async function markAllRead() {
-    const data = await api.markNotificationsRead({ all: true });
-    if (data) {
-      setUnread(data.unread);
-      setItems(data.items);
-    }
+    apply(await api.markNotificationsRead({ all: true }));
   }
 
+  return { unread, items, load, open, markAllRead };
+}
+
+// Bell with unread count and a dropdown of notifications.
+// inNav: rendered inside the navbar's <Nav> (desktop); otherwise next to the mobile menu button.
+function NotificationBell({ notifications, inNav = true, className = "" }) {
+  const { unread, items, load, open, markAllRead } = notifications;
+
   return (
-    <UncontrolledDropdown nav inNavbar className="notification-bell">
-      <DropdownToggle nav aria-label={`Notifications (${unread} unread)`} onClick={load}>
+    <UncontrolledDropdown nav={inNav} inNavbar={inNav} className={"notification-bell " + className}>
+      <DropdownToggle nav={inNav} color="link" aria-label={`Notifications (${unread} unread)`} onClick={() => load()}>
         <i className="nc-icon nc-bell-55" />
         {unread > 0 && <span className="notification-count">{unread > 9 ? "9+" : unread}</span>}
       </DropdownToggle>

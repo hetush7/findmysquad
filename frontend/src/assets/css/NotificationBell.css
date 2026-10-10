@@ -21,10 +21,25 @@
   text-align: center;
 }
 
-.notification-menu {
+/* The theme makes navbar dropdowns transparent; this menu needs its own panel */
+.navbar .notification-menu.dropdown-menu {
   width: 320px;
+  max-width: calc(100vw - 32px);
   max-height: 420px;
   overflow-y: auto;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+
+/* the theme forces `.dropdown.show .dropdown-menu { background: transparent !important }` on small screens */
+.navbar .notification-bell.dropdown.show .notification-menu.dropdown-menu {
+  background: #ffffff !important;
+}
+
+.navbar .notification-menu .dropdown-item,
+.navbar .notification-menu .dropdown-item:hover {
+  color: #333333;
 }
 
 .notification-menu-header {
@@ -64,4 +79,23 @@
 .notification-empty {
   margin: 8px 16px 12px;
   color: #9a9a9a;
+}
+
+/* Mobile: the bell sits next to the menu button so the unread count is always visible */
+.notification-bell-mobile {
+  position: absolute;
+  top: 50%;
+  right: 56px;
+  transform: translateY(-50%);
+}
+
+.notification-bell-mobile .btn-link {
+  position: relative;
+  margin: 0;
+  padding: 6px 10px;
+  color: inherit;
+}
+
+.navbar-translate {
+  position: relative;
 }
