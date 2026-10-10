@@ -221,6 +221,109 @@
   word-break: break-word;
 }
 
+.room-card + .room-card {
+  margin-top: 24px;
+}
+
+/* Squad chat */
+.room-chat-messages {
+  height: 320px;
+  overflow-y: auto;
+  padding: 4px 4px 8px;
+}
+
+.room-chat-empty {
+  margin-top: 120px;
+  text-align: center;
+  color: #9a9a9a;
+}
+
+.room-chat-message {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  margin-top: 8px;
+}
+
+.room-chat-message.mine {
+  align-items: flex-end;
+}
+
+.room-chat-sender {
+  margin: 6px 0 2px 4px;
+  font-size: 0.8em;
+  font-weight: 700;
+  color: #66615b;
+}
+
+.room-chat-bubble {
+  max-width: 80%;
+  padding: 8px 12px;
+  border-radius: 16px 16px 16px 4px;
+  background: #f1f1f1;
+  color: #333333;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.room-chat-message.mine .room-chat-bubble {
+  border-radius: 16px 16px 4px 16px;
+  background: #51cbce;
+  color: #ffffff;
+}
+
+.room-chat-meta {
+  display: flex;
+  gap: 8px;
+  margin: 2px 6px 0;
+  font-size: 0.72em;
+  color: #9a9a9a;
+}
+
+.room-chat-report {
+  padding: 0;
+  border: none;
+  background: none;
+  color: #9a9a9a;
+  text-decoration: underline;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.room-chat-message:hover .room-chat-report,
+.room-chat-report:focus {
+  opacity: 1;
+}
+
+.room-chat-reported {
+  color: #f5593d;
+}
+
+.room-chat-error {
+  margin: 8px 0 0;
+  font-size: 0.85em;
+  color: #f5593d;
+}
+
+.room-chat-form {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #eeeeee;
+}
+
+.room-chat-form .btn {
+  margin: 0;
+}
+
+@media (hover: none) {
+  /* no hover on touch screens, so always show the report link */
+  .room-chat-report {
+    opacity: 1;
+  }
+}
+
 @media (max-width: 767px) {
   .room-hero {
     padding-top: 100px;

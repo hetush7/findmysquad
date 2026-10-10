@@ -1,6 +1,9 @@
 from django.shortcuts 			import render
 from django.contrib.auth 		import authenticate, login, password_validation
 from django.core.exceptions 	import ValidationError
+from django.shortcuts 			import get_object_or_404
+from django.utils 				import timezone
+from datetime 					import timedelta
 
 from rest_framework.views 		import APIView
 from rest_framework.response 	import Response 
@@ -443,3 +446,69 @@ class GamerTagsView(APIView):
 			serializer.save()
 			return Response(serializer.data, status=status.HTTP_200_OK)
 		return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+CHAT_HISTORY_LIMIT = 50                    # messages returned on first load
+CHAT_RATE_LIMIT    = 5                     # messages allowed per user...
+CHAT_RATE_WINDOW   = timedelta(seconds=10) # ...within this window
+
+class SessionChatView(APIView):
+	serializer_class = ChatMessageSerializer
+
+	def get_member_session(self, request, session_id):
+		session = get_object_or_404(GameSession, id=session_id)
+		if not session.has_member(request.user):
+			return None
+		return session
+
+	# Get messages: the latest ones, or only those newer than ?after=<message id>
+	def get(self, request, session_id, format=None):
+		session = self.get_member_session(request, session_id)
+		if session is None:
+			return Response({'detail': 'Only squad members can read this chat.'}, status=status.HTTP_403_FORBIDDEN)
+
+		messages = session.messages.select_related('sender')
+		after = request.query_params.get('after')
+		if after is not None:
+			if not after.isdigit():
+				return Response({'after': ['Must be a message id.']}, status=status.HTTP_400_BAD_REQUEST)
+			messages = messages.filter(id__gt=int(after))[:CHAT_HISTORY_LIMIT]
+		else:
+			messages = reversed(messages.order_by('-id')[:CHAT_HISTORY_LIMIT])
+
+		return Response(self.serializer_class(messages, many=True).data, status=status.HTTP_200_OK)
+
+	# Send a message
+	def post(self, request, session_id, format=None):
+		session = self.get_member_session(request, session_id)
+		if session is None:
+			return Response({'detail': 'Only squad members can post in this chat.'}, status=status.HTTP_403_FORBIDDEN)
+
+		recent = session.messages.filter(
+			sender=request.user,
+			created_at__gte=timezone.now() - CHAT_RATE_WINDOW
+		).count()
+		if recent >= CHAT_RATE_LIMIT:
+			return Response({'detail': 'You are sending messages too quickly.'}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+
+		serializer = self.serializer_class(data=request.data)
+		if serializer.is_valid():
+			serializer.save(session=session, sender=request.user)
+			return Response(serializer.data, status=status.HTTP_201_CREATED)
+		return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class ReportChatMessageView(APIView):
+
+	# Flag a message for admin review
+	def post(self, request, session_id, format=None):
+		session = get_object_or_404(GameSession, id=session_id)
+		if not session.has_member(request.user):
+			return Response({}, status=status.HTTP_403_FORBIDDEN)
+
+		message_id = str(request.data.get('message_id', ''))
+		if not message_id.isdigit():
+			return Response({'message_id': ['Must be a message id.']}, status=status.HTTP_400_BAD_REQUEST)
+
+		message = get_object_or_404(ChatMessage, id=int(message_id), session=session)
+		message.reported = True
+		message.save()
+		return Response({}, status=status.HTTP_200_OK)

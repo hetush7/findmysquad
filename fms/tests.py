@@ -282,3 +282,100 @@ class GamerTagsTest(TestCase):
         session = self.client.get('/api/get-sessions').data[0]
         self.assertEqual(session['hostGamerTags'], {})
         self.assertEqual(session['players'][0]['gamerTags'], {})
+
+
+#Testing room chat permissions, polling and limits
+class SessionChatTest(TestCase):
+
+    def setUp(self):
+        self.client = APIClient()
+        self.host = User.objects.create_user(username='host', password='1X<ISRUkw+tuK')
+        self.player = User.objects.create_user(username='player', password='1X<ISRUkw+tuK')
+        self.outsider = User.objects.create_user(username='outsider', password='1X<ISRUkw+tuK')
+        game = Game.objects.create(game_short_name="Apex", game_name="Apex Legends", description="desc", image_path="img.jpg")
+        self.session = GameSession.objects.create(created_by=self.host, game=game, max_players=3, session_name="s", description="d", instructions="i")
+        self.session.players.add(self.player)
+        self.url = f'/api/session-chat/{self.session.id}'
+
+    def login(self, user):
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {RefreshToken.for_user(user).access_token}')
+
+    def post(self, text):
+        return self.client.post(self.url, {'text': text}, format='json')
+
+    def test_requires_login(self):
+        self.assertEqual(self.client.get(self.url).status_code, 401)
+
+    def test_outsider_cannot_read_or_post(self):
+        self.login(self.outsider)
+        self.assertEqual(self.client.get(self.url).status_code, 403)
+        self.assertEqual(self.post('hi').status_code, 403)
+
+    def test_unknown_session(self):
+        self.login(self.host)
+        self.assertEqual(self.client.get('/api/session-chat/9999').status_code, 404)
+
+    def test_host_and_player_can_chat(self):
+        self.login(self.host)
+        resp = self.post('  hello squad  ')
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.data['text'], 'hello squad')
+        self.assertEqual(resp.data['username'], 'host')
+
+        self.login(self.player)
+        self.post('hey')
+        texts = [m['text'] for m in self.client.get(self.url).data]
+        self.assertEqual(texts, ['hello squad', 'hey'])
+
+    def test_after_returns_only_newer(self):
+        self.login(self.host)
+        first = self.post('one').data['id']
+        self.post('two')
+        resp = self.client.get(self.url, {'after': first})
+        self.assertEqual([m['text'] for m in resp.data], ['two'])
+        self.assertEqual(self.client.get(self.url, {'after': 'abc'}).status_code, 400)
+
+    def test_first_load_returns_latest_messages_in_order(self):
+        for i in range(55):
+            ChatMessage.objects.create(session=self.session, sender=self.host, text=str(i))
+        self.login(self.host)
+        texts = [m['text'] for m in self.client.get(self.url).data]
+        self.assertEqual(len(texts), 50)
+        self.assertEqual(texts[0], '5')
+        self.assertEqual(texts[-1], '54')
+
+    def test_rejects_empty_and_too_long(self):
+        self.login(self.host)
+        self.assertEqual(self.post('   ').status_code, 400)
+        self.assertEqual(self.post('x' * 501).status_code, 400)
+
+    def test_rate_limit(self):
+        self.login(self.player)
+        for i in range(5):
+            self.assertEqual(self.post(str(i)).status_code, 201)
+        self.assertEqual(self.post('too fast').status_code, 429)
+
+    def test_kicked_player_loses_access(self):
+        self.session.players.remove(self.player)
+        self.login(self.player)
+        self.assertEqual(self.client.get(self.url).status_code, 403)
+
+    def test_messages_deleted_with_session(self):
+        ChatMessage.objects.create(session=self.session, sender=self.host, text='bye')
+        self.session.delete()
+        self.assertFalse(ChatMessage.objects.exists())
+
+    def test_report_message(self):
+        message = ChatMessage.objects.create(session=self.session, sender=self.host, text='rude')
+        self.login(self.player)
+        resp = self.client.post(self.url + '/report', {'message_id': message.id}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        message.refresh_from_db()
+        self.assertTrue(message.reported)
+        self.assertEqual(self.client.post(self.url + '/report', {'message_id': 'x'}, format='json').status_code, 400)
+
+    def test_outsider_cannot_report(self):
+        message = ChatMessage.objects.create(session=self.session, sender=self.host, text='hi')
+        self.login(self.outsider)
+        resp = self.client.post(self.url + '/report', {'message_id': message.id}, format='json')
+        self.assertEqual(resp.status_code, 403)

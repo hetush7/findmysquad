@@ -193,3 +193,17 @@ class PostSerializer(serializers.ModelSerializer):
 	
 	def get_reported(self,obj):
 		return obj.reported
+
+class ChatMessageSerializer(serializers.ModelSerializer):
+	username  = serializers.CharField(source='sender.username', read_only=True)
+	createdAt = serializers.DateTimeField(source='created_at', read_only=True)
+
+	class Meta:
+		model  = ChatMessage
+		fields = ('id', 'username', 'text', 'createdAt')
+
+	def validate_text(self, value):
+		value = value.strip()
+		if not value:
+			raise serializers.ValidationError('Message cannot be empty.')
+		return value

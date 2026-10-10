@@ -763,6 +763,97 @@ export class APIOnline {
         });
     }
 
+    /**
+     * A function to get room chat messages
+     * @param sessionID - The session whose chat to read
+     * @param afterID - Only return messages newer than this message id (omit for the latest messages)
+     * @returns { messages } on success, { error, status } otherwise
+     */
+    getChatMessages(sessionID, afterID) {
+        const requestOptions = {
+            method: 'get',
+            headers: { 
+              'Accept': 'application/json',
+              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+            },
+        };
+        const query = afterID ? `?after=${afterID}` : '';
+
+        return new Promise((resolve) => {
+            var responseCode = 0;
+            fetch(`http://localhost:8000/api/session-chat/${sessionID}${query}`, requestOptions)
+                .then(function(response) {
+                    responseCode = response.status
+                    return response.json()
+                })
+                .then(function(data){
+                    if (responseCode === 200) { resolve({ messages: data }) }
+                    else if (responseCode === 401) {
+                        alert('YOU ARE LOGGED OUT')
+                        window.location.replace('http://localhost:3000/login-page')
+                    }
+                    else { resolve({ error: data.detail || 'Could not load messages.', status: responseCode }) }
+                })
+                .catch(() => resolve({ error: 'Could not reach the server.', status: 0 }))
+        });
+    }
+
+    /**
+     * A function to send a room chat message
+     * @param sessionID - The session whose chat to post in
+     * @param text - The message text
+     * @returns { message } on success, { error } otherwise
+     */
+    sendChatMessage(sessionID, text) {
+        const requestOptions = {
+            method: 'post',
+            headers: { 
+              'Accept': 'application/json',
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+            },
+            body: JSON.stringify({ text: text })
+        };
+
+        return new Promise((resolve) => {
+            var responseCode = 0;
+            fetch(`http://localhost:8000/api/session-chat/${sessionID}`, requestOptions)
+                .then(function(response) {
+                    responseCode = response.status
+                    return response.json()
+                })
+                .then(function(data){
+                    if (responseCode === 201) { resolve({ message: data }) }
+                    else if (responseCode === 401) {
+                        alert('YOU ARE LOGGED OUT')
+                        window.location.replace('http://localhost:3000/login-page')
+                    }
+                    else { resolve({ error: data.detail || Object.values(data).flat().join(' ') || 'Could not send.' }) }
+                })
+                .catch(() => resolve({ error: 'Could not reach the server.' }))
+        });
+    }
+
+    /**
+     * A function to report a room chat message for admin review
+     * @returns - Boolean, true if the report was recorded
+     */
+    reportChatMessage(sessionID, messageID) {
+        const requestOptions = {
+            method: 'post',
+            headers: { 
+              'Accept': 'application/json',
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+            },
+            body: JSON.stringify({ message_id: messageID })
+        };
+
+        return fetch(`http://localhost:8000/api/session-chat/${sessionID}/report`, requestOptions)
+            .then(response => response.status === 200)
+            .catch(() => false);
+    }
+
     getUserImage() {
         const requestOptions = {
             method: 'get',

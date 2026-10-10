@@ -46,6 +46,10 @@ class GameSession(models.Model):
             return False
         return True
 
+    def has_member(self, user):
+        # The host or any player who has joined
+        return self.created_by_id == user.id or self.players.filter(id=user.id).exists()
+
 class Friends(models.Model):
     user   = models.ForeignKey(User, on_delete=models.CASCADE, related_name='me')
     friend = models.ForeignKey(User, on_delete=models.CASCADE)
@@ -79,3 +83,19 @@ class GamerTags(models.Model):
 
     def __str__(self):
         return str(self.user) + "'s gamer tags"
+
+class ChatMessage(models.Model):
+    session    = models.ForeignKey(GameSession, on_delete=models.CASCADE, related_name='messages')
+    sender     = models.ForeignKey(User, on_delete=models.CASCADE)
+    text       = models.CharField(max_length=500)
+    created_at = models.DateTimeField(auto_now_add=True)
+    reported   = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ['id']
+
+    def __str__(self):
+        label = str(self.sender) + " in " + str(self.session.session_name)
+        if self.reported:
+            return label + " (Review Required)"
+        return label

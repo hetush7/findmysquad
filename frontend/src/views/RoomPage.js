@@ -36,6 +36,7 @@ import {
 import Navbar from "components/Navbars/PageNavbar.js";
 import PageFooter from "components/Footers/PageFooter";
 import API from "api/API";
+import RoomChat from "components/RoomChat";
 import platforms from "assets/data/platforms";
 import { useHistory, useLocation } from "react-router";
 
@@ -93,16 +94,28 @@ function RoomPage() {
   const [notice, setNotice] = useState(null); // { color, text }
   const [busy, setBusy] = useState(false);
 
-  // fetch the session, then the game it belongs to; redirect to 404 if it no longer exists
-  const loadSession = React.useCallback(async () => {
+  const hasLoadedRef = React.useRef(false);
+
+  // fetch the latest session data; if it no longer exists, leave the page
+  const refreshSession = React.useCallback(async () => {
     const data = await api.getSession(sessionID);
     if (!data) {
-      history.push("/error-404");
-      return;
+      // a room that was open here has since been closed by its host
+      history.push(hasLoadedRef.current ? "/sessions-page" : "/error-404");
+      return null;
     }
+    hasLoadedRef.current = true;
     setSession(data);
-    setGame(await api.getGame(data.gameID));
+    return data;
   }, [api, sessionID, history]);
+
+  // fetch the session, then the game it belongs to
+  const loadSession = React.useCallback(async () => {
+    const data = await refreshSession();
+    if (data) {
+      setGame(await api.getGame(data.gameID));
+    }
+  }, [api, refreshSession]);
 
   React.useEffect(() => {
     document.body.classList.add("room-page");
@@ -120,6 +133,16 @@ function RoomPage() {
     sessionStorage.setItem("sessionID", sessionID);
     loadSession();
   }, [sessionID, history, loadSession]);
+
+  // keep the squad list up to date while the page is open (players joining, leaving, being removed)
+  React.useEffect(() => {
+    const interval = setInterval(() => {
+      if (!document.hidden) {
+        refreshSession();
+      }
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [refreshSession]);
 
   if (session === null) {
     return (
@@ -141,8 +164,8 @@ function RoomPage() {
     const joined = await api.joinSession(session.id);
     setBusy(false);
     if (joined) {
-      setNotice({ color: "success", text: "You're in! Check the join details below." });
-      loadSession();
+      setNotice({ color: "success", text: "You're in! Check the join details and say hi in the chat." });
+      refreshSession();
     } else {
       setNotice({ color: "danger", text: "Unable to join. You may already be in another room, or this one just filled up." });
     }
@@ -163,7 +186,7 @@ function RoomPage() {
     }
     if (await api.removePlayerFromSession(player.userID, session.id)) {
       setNotice({ color: "info", text: `${player.username} has been removed.` });
-      loadSession();
+      refreshSession();
     } else {
       setNotice({ color: "danger", text: `Couldn't remove ${player.username}.` });
     }
@@ -272,6 +295,17 @@ function RoomPage() {
                     </ul>
                   </CardBody>
                 </Card>
+
+                {isMember && (
+                  <Card className="room-card">
+                    <CardHeader className="room-card-header">
+                      <h4>Squad chat</h4>
+                    </CardHeader>
+                    <CardBody>
+                      <RoomChat sessionID={session.id} currentUser={currentUser} onAccessLost={refreshSession} />
+                    </CardBody>
+                  </Card>
+                )}
               </Col>
 
               <Col lg="5">
