@@ -1,4 +1,5 @@
-# Production stack: nginx (React app + proxy) -> gunicorn (Django) -> PostgreSQL.
+# Production stack: nginx (React app + proxy) -> gunicorn/uvicorn (Django, HTTP + WebSockets)
+# -> PostgreSQL, with Redis passing live chat messages between server processes.
 #   cp .env.prod.example .env.prod   # then fill in real values
 #   docker compose -f docker-compose.prod.yml up -d --build
 
@@ -15,16 +16,29 @@ services:
       timeout: 5s
       retries: 10
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   web:
     build: .
     restart: unless-stopped
     env_file: ${ENV_FILE:-.env.prod}
+    environment:
+      - REDIS_URL=redis://redis:6379/0
     command: >
       sh -c "python manage.py migrate --noinput &&
              python manage.py collectstatic --noinput &&
-             gunicorn src.wsgi:application --bind 0.0.0.0:8000 --workers 3 --access-logfile -"
+             gunicorn src.asgi:application -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000 --workers 3 --access-logfile -"
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   frontend:
