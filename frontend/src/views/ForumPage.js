@@ -25,29 +25,17 @@ import { Row, Col, Card, CardTitle, CardBody, Container, Button } from 'reactstr
 import Navbar from "components/Navbars/PageNavbar.js";
 import Footer from "components/Footers/PageFooter.js";
 import API from "api/API";
+import { useHistory } from "react-router";
 
 function ForumPage() {
 
     let api = API.getApi();
 
-    const [forumList, setForumsData] = useState(() => {
-        if (sessionStorage.getItem("Forums")) {
-          return sessionStorage.getItem("Forums")
-        } else {
-          fetchForums();
-          return [{}]
-        }
-      });
+    const history = useHistory();
+    const [forumList, setForumsData] = useState([]);
 
-    async function fetchForums() {
-        var allForums = await api.getForums();
-        console.log(allForums);
-        sessionStorage.setItem("Forums", JSON.stringify(allForums));
-      }
-      
     React.useEffect(() => {
-        fetchForums()
-        forumsAPICallback()
+        api.getForums().then(allForums => setForumsData(allForums));
         document.body.classList.add("blog-posts");
         window.scrollTo(0, 0);
         document.body.scrollTop = 0;
@@ -56,17 +44,6 @@ function ForumPage() {
         };
         // eslint-disable-next-line
     },[]);
-
-    function forumsAPICallback() {
-        var getForums = sessionStorage.getItem("Forums");
-        if (getForums) {
-          var jsonForums = JSON.parse(sessionStorage.getItem("Forums"))
-          setForumsData(jsonForums)
-        } else {
-          window.location.reload();
-        }
-      }
-
 
     return (
         <>
@@ -98,7 +75,7 @@ function ForumPage() {
                                                 <Button
                                                     className="btn-round"
                                                     color="warning"
-                                                    href={"/forum/" + forumList[idx].tag}
+                                                    onClick={() => history.push("/forum/" + forumList[idx].tag)}
                                                 >
                                                 Enter
                                                 </Button>

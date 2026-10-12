@@ -1,5 +1,7 @@
-from rest_framework import serializers 
+from django.contrib.auth import password_validation
+from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from django.db import models
 from .models import *
 
 class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -16,14 +18,39 @@ class UserSerializer(serializers.ModelSerializer):
 	class Meta:
 		model  = User
 		fields = ['id', 'username', 'email', 'password']
+		extra_kwargs = {'password': {'write_only': True}}
+
+	def validate_password(self, value):
+		password_validation.validate_password(value)
+		return value
+
+	def create(self, validated_data):
+		return User.objects.create_user(**validated_data)
+
+class GamerTagsSerializer(serializers.ModelSerializer):
+	class Meta:
+		model  = GamerTags
+		fields = ('psn', 'xbox', 'steam', 'riot', 'ea', 'activision')
+
+	def validate(self, attrs):
+		return {field: value.strip() for field, value in attrs.items()}
+
+def gamer_tags_for(user):
+	# Only the platforms the user has filled in
+	try:
+		tags = user.gamer_tags
+	except GamerTags.DoesNotExist:
+		return {}
+	return {field: value for field, value in GamerTagsSerializer(tags).data.items() if value}
 
 class PlayerSerializer(serializers.ModelSerializer):
-	userID   = serializers.SerializerMethodField('get_id')
-	username = serializers.SerializerMethodField('get_username')
+	userID    = serializers.SerializerMethodField('get_id')
+	username  = serializers.SerializerMethodField('get_username')
+	gamerTags = serializers.SerializerMethodField('get_gamer_tags')
 
 	class Meta:
 		model  = User
-		fields = ('userID', 'username')
+		fields = ('userID', 'username', 'gamerTags')
 
 	def get_id(self, obj):
 		return obj.id
@@ -31,10 +58,14 @@ class PlayerSerializer(serializers.ModelSerializer):
 	def get_username(self, obj):
 		return obj.username
 
+	def get_gamer_tags(self, obj):
+		return gamer_tags_for(obj)
+
 class SessionSerializer(serializers.ModelSerializer):
 	id                 = serializers.SerializerMethodField('get_id')
 	hostID             = serializers.SerializerMethodField('get_host_id')
 	hostUsername       = serializers.SerializerMethodField('get_host_username')
+	hostGamerTags      = serializers.SerializerMethodField('get_host_gamer_tags')
 	gameID             = serializers.SerializerMethodField('get_game_id')
 	gameImagePath      = serializers.SerializerMethodField('get_game_imagepath')
 	sessionName        = serializers.SerializerMethodField('get_name')
@@ -44,11 +75,14 @@ class SessionSerializer(serializers.ModelSerializer):
 	maxPlayers         = serializers.SerializerMethodField('get_max_players')
 	players            = serializers.SerializerMethodField('get_players')
 	gameShortName      = serializers.SerializerMethodField('get_game_short_name')
+	expiresAt          = serializers.DateTimeField(source='expires_at', read_only=True)
+	minRank            = serializers.SerializerMethodField('get_min_rank')
+	maxRank            = serializers.SerializerMethodField('get_max_rank')
 
 	class Meta:
 		model  = GameSession
 		exclude = ('max_players', 'session_name', 'description', 'instructions', 
-		'created_by', 'game')
+		'created_by', 'game', 'min_rank', 'max_rank', 'expires_at')
 
 	def get_id(self, obj):
 		return obj.id
@@ -58,6 +92,9 @@ class SessionSerializer(serializers.ModelSerializer):
 
 	def get_host_username(self, obj):
 		return obj.created_by.username
+
+	def get_host_gamer_tags(self, obj):
+		return gamer_tags_for(obj.created_by)
 
 	def get_game_id(self, obj):
 		return obj.game.id
@@ -83,8 +120,47 @@ class SessionSerializer(serializers.ModelSerializer):
 	def get_game_short_name(self, obj):
 		return obj.game.game_short_name
 
+	def get_min_rank(self, obj):
+		return obj.min_rank or None
+
+	def get_max_rank(self, obj):
+		return obj.max_rank or None
+
 	def get_players(self, obj):
 		return PlayerSerializer(obj.players, many=True).data
+
+	def to_representation(self, obj):
+		# Join instructions and gamer tags are only for squad members (context['private'])
+		data = super().to_representation(obj)
+
+		# each member's saved rank for this room's game (public, like the rank range)
+		ranks = dict(PlayerRank.objects.filter(game=obj.game, user_id__in=[obj.created_by_id] + [p['userID'] for p in data['players']])
+		             .values_list('user_id', 'rank'))
+		data['hostRank'] = ranks.get(obj.created_by_id)
+		for player in data['players']:
+			player['rank'] = ranks.get(player['userID'])
+
+		# total endorsements each member has received
+		member_ids = [obj.created_by_id] + [p['userID'] for p in data['players']]
+		counts = dict(Endorsement.objects.filter(to_user_id__in=member_ids).values('to_user_id')
+		              .annotate(total=models.Count('id')).values_list('to_user_id', 'total'))
+		data['hostEndorsements'] = counts.get(obj.created_by_id, 0)
+		for player in data['players']:
+			player['endorsements'] = counts.get(player['userID'], 0)
+
+		if not self.context.get('private'):
+			data.pop('joinDescription')
+			data.pop('hostGamerTags')
+			for player in data['players']:
+				player.pop('gamerTags')
+		elif self.context.get('user'):
+			# which endorsements the viewer has already given to each member, e.g. {"bob": ["teammate"]}
+			given = {}
+			for username, kind in Endorsement.objects.filter(from_user=self.context['user'], to_user_id__in=member_ids) \
+					.values_list('to_user__username', 'kind'):
+				given.setdefault(username, []).append(kind)
+			data['myEndorsements'] = given
+		return data
 
 class GameSerializer(serializers.ModelSerializer):
 	id                 = serializers.SerializerMethodField('get_id')
@@ -95,7 +171,7 @@ class GameSerializer(serializers.ModelSerializer):
 
 	class Meta:
 		model = Game
-		fields = ['id','gameShortName','gameName','gameDescription','imagePath']
+		fields = ['id','gameShortName','gameName','gameDescription','imagePath','ranks']
 	
 	def get_id(self, obj):
 		return obj.id
@@ -160,3 +236,53 @@ class PostSerializer(serializers.ModelSerializer):
 	
 	def get_reported(self,obj):
 		return obj.reported
+
+class ChatMessageSerializer(serializers.ModelSerializer):
+	username  = serializers.CharField(source='sender.username', read_only=True)
+	createdAt = serializers.DateTimeField(source='created_at', read_only=True)
+
+	class Meta:
+		model  = ChatMessage
+		fields = ('id', 'username', 'text', 'createdAt')
+
+	def validate_text(self, value):
+		value = value.strip()
+		if not value:
+			raise serializers.ValidationError('Message cannot be empty.')
+		return value
+
+MAX_SQUAD_SIZE = 10  # players who can join a room, not counting the host
+ROOM_DURATION_HOURS = (1, 2, 4, 8, 12, 24)
+
+class CreateSessionSerializer(serializers.Serializer):
+	game_id      = serializers.PrimaryKeyRelatedField(queryset=Game.objects.all(), source='game')
+	max_players  = serializers.IntegerField(min_value=1, max_value=MAX_SQUAD_SIZE)
+	session_name = serializers.CharField(max_length=100)
+	description  = serializers.CharField(max_length=300)
+	instructions = serializers.CharField(max_length=300)
+	min_rank     = serializers.CharField(max_length=50, required=False, allow_blank=True, default='')
+	max_rank     = serializers.CharField(max_length=50, required=False, allow_blank=True, default='')
+	duration_hours = serializers.ChoiceField(choices=ROOM_DURATION_HOURS, required=False, default=DEFAULT_ROOM_HOURS)
+	platform     = serializers.ChoiceField(choices=PLATFORM_CHOICES, required=False, default='any')
+	region       = serializers.ChoiceField(choices=REGION_CHOICES, required=False, default='any')
+	voice        = serializers.ChoiceField(choices=VOICE_CHOICES, required=False, default='any')
+	post_to_discord = serializers.BooleanField(required=False, default=False)
+
+	def validate(self, attrs):
+		error = attrs['game'].rank_range_error(attrs['min_rank'], attrs['max_rank'])
+		if error:
+			raise serializers.ValidationError(error)
+		return attrs
+
+def first_error(errors):
+	# Flatten DRF serializer errors into one readable message, e.g. "max_players: Ensure this value is ..."
+	field, messages = next(iter(errors.items()))
+	message = messages[0] if isinstance(messages, list) else messages
+	return str(message) if field == 'non_field_errors' else field + ': ' + str(message)
+
+class NotificationSerializer(serializers.ModelSerializer):
+	createdAt = serializers.DateTimeField(source='created_at', read_only=True)
+
+	class Meta:
+		model  = Notification
+		fields = ('id', 'kind', 'text', 'link', 'read', 'createdAt')

@@ -36,7 +36,8 @@ import {
   InputGroupText,
   InputGroup,
   Form,
-  FormGroup
+  FormGroup,
+  Label
 } from "reactstrap";
 
 // core components
@@ -46,6 +47,9 @@ import Footer from "components/Footers/PageFooter.js";
 
 import "assets/css/demo.css"
 import API from "api/API";
+import platforms from "assets/data/platforms";
+import ENDORSEMENT_KINDS from "assets/data/endorsements";
+import DiscordButton from "components/DiscordButton";
 
 function ProfilePage() {
 
@@ -59,41 +63,41 @@ function ProfilePage() {
   const [RequestData, setRequestData] = useState({'username': 'dummy'}); // Friend request list
   const [bio, setBio] = useState(""); // Bio
   const [count, setCount] = useState(300); // Bio limit
+  const [currentPassword, setCurrentPassword] = useState(""); // Current password input
   const [newPassword1, setNewPassword1] = useState(""); // Password Input
   const [newPassword2, setNewPassword2] = useState(""); // Confirmation password input
   const [imageURL, setImageURL] = useState(placeholder); // preview image URL
+  const [gamerTags, setGamerTags] = useState({}); // platform -> gamer tag
+  const [gamerTagsFeedback, setGamerTagsFeedback] = useState(null); // { color, text }
+  const [rankGames, setRankGames] = useState([]); // games that have ranks
+  const [myRanks, setMyRanks] = useState({}); // game id -> rank
+  const [ranksFeedback, setRanksFeedback] = useState(null); // { color, text }
+  const [endorsements, setEndorsements] = useState({}); // kind -> count
+  const [blocked, setBlocked] = useState([]); // [{ username }]
+  const [discordAccount, setDiscordAccount] = useState({ linked: false, username: null });
+  const [discordError, setDiscordError] = useState(null);
   const [profilePic, setProfilePic] = useState(placeholder) // Profile Pic Image URL
   const current_user = localStorage.getItem('current_user') // current user
 
   function fetchFriendRequests() {
-    api.getFriendRequests().then(data => {
-      setRequestData(data, () => {
-        console.log(RequestData);
-      })
-    })
+    api.getFriendRequests().then(data => setRequestData(data))
   }
 
   function fetchFriends() {
-    api.getFriends().then(data => {
-      setFriendList(data, () => {
-        console.log(friendList)
-      })
-    })
+    api.getFriends().then(data => setFriendList(data))
   }
 
   function fetchBio() {
       api.getUserBio().then(data => {
-        setBio(data.bio, () => {
-          console.log(bio)
-        })
+        if (data) {
+          setBio(data.bio)
+        }
       })
   }
 
   function fetchImage() {
     api.getUserImage().then(data => {
-      if (data.image_url === "IMAGE_URL") {
-        console.log('placeholder')
-      } else {
+      if (data && data.image_url !== "IMAGE_URL") {
         setProfilePic(data.image_url)
       }
     })
@@ -185,12 +189,11 @@ function ProfilePage() {
 
     document.getElementById("updatePasswordFeedback").hidden = false;
     if (newPassword1 === newPassword2) {
-      console.log(newPassword1)
-      api.updatePassword(newPassword1).then(data => {
-        if (data) {
+      api.updatePassword(currentPassword, newPassword1).then(error => {
+        if (error === null) {
           document.getElementById("updatePasswordFeedback").innerHTML = "Password Updated!";
         } else {
-          document.getElementById("updatePasswordFeedback").innerHTML = "Error";
+          document.getElementById("updatePasswordFeedback").innerText = error;
         }
       })
     } else {
@@ -236,12 +239,63 @@ function ProfilePage() {
       history.push(from.pathname)
   }
 
+  function unlinkDiscord() {
+    api.unlinkDiscord().then(error => {
+      if (error === null) {
+        setDiscordAccount({ linked: false, username: null });
+        setDiscordError(null);
+      } else {
+        setDiscordError(error);
+      }
+    })
+  }
+
+  function unblock(username) {
+    api.unblockUser(username).then(list => {
+      if (list) { setBlocked(list) }
+    })
+  }
+
+  function saveRanks(e) {
+    e.preventDefault();
+    const ranks = {};
+    rankGames.forEach(game => { ranks[game.id] = myRanks[game.id] || ""; });
+    api.updateMyRanks(ranks).then(error => {
+      if (error === null) {
+        setRanksFeedback({ color: "text-success", text: "Ranks saved!" });
+      } else {
+        setRanksFeedback({ color: "text-danger", text: error });
+      }
+    })
+  }
+
+  function saveGamerTags(e) {
+    e.preventDefault();
+    api.updateGamerTags(gamerTags).then(error => {
+      if (error === null) {
+        setGamerTagsFeedback({ color: "text-success", text: "Gamer tags saved!" });
+      } else {
+        setGamerTagsFeedback({ color: "text-danger", text: error });
+      }
+    })
+  }
+
   document.documentElement.classList.remove("nav-open");
   React.useEffect(() => {
       fetchFriends()
       fetchFriendRequests()
       fetchBio()
       fetchImage()
+      api.getGamerTags().then(data => {
+        if (data) { setGamerTags(data) }
+      })
+      api.getGames().then(games => setRankGames(games.filter(game => game.ranks && game.ranks.length > 0)))
+      api.getMyRanks().then(ranks => setMyRanks(ranks))
+      api.getBlocks().then(list => setBlocked(list))
+      api.getDiscordAccount().then(account => setDiscordAccount(account))
+      if (current_user) {
+        api.getEndorsements(current_user).then(counts => setEndorsements(counts))
+      }
 
       document.body.classList.add("profile-page");
       return function cleanup() {
@@ -268,6 +322,12 @@ function ProfilePage() {
               <h4 className="title">
                 {current_user}
               </h4>
+              <p className="profile-endorsements">
+                {ENDORSEMENT_KINDS.filter(kind => endorsements[kind.value]).length === 0
+                  ? "No endorsements yet"
+                  : ENDORSEMENT_KINDS.filter(kind => endorsements[kind.value])
+                      .map(kind => `★ ${kind.label} ×${endorsements[kind.value]}`).join("  ·  ")}
+              </p>
             </div>
           </div>
           <Row>
@@ -347,6 +407,26 @@ function ProfilePage() {
                     }}
                   >
                     Picture
+                  </NavLink>
+                </NavItem>
+                <NavItem>
+                  <NavLink
+                    className={activeTab === "7" ? "active" : ""}
+                    onClick={() => {
+                      toggle("7");
+                    }}
+                  >
+                    Gamer tags & ranks
+                  </NavLink>
+                </NavItem>
+                <NavItem>
+                  <NavLink
+                    className={activeTab === "8" ? "active" : ""}
+                    onClick={() => {
+                      toggle("8");
+                    }}
+                  >
+                    Blocked
                   </NavLink>
                 </NavItem>
               </Nav>
@@ -531,6 +611,13 @@ function ProfilePage() {
                   <Form>
                     <br />
                     <Input 
+                      placeholder="Current Password" 
+                      type="password" 
+                      name="currentPassword"
+                      onChange={e => setCurrentPassword(e.target.value)}
+                    />
+                    <br />
+                    <Input 
                       placeholder="New Password" 
                       type="password" 
                       name="newPassword1"
@@ -589,6 +676,115 @@ function ProfilePage() {
                   <Button className="btn-round" color="danger" onClick={ e => updateImage(e)} >
                     Update
                   </Button>
+                </Col>
+              </Row>
+            </TabPane>
+
+            {/* Gamer tags */}
+            <TabPane className="text-left" tabId="7" id="gamer-tags">
+              <Row>
+                <Col className="ml-auto mr-auto text-center" md="6">
+                  <h2 className="title">Gamer tags</h2>
+                  <p>Add the accounts you play on so your squad can find you. They're shown to other players in your rooms.</p>
+                  {discordAccount.linked ? (
+                    <p className="discord-linked">
+                      Linked to Discord as <b>{discordAccount.username}</b>{" "}
+                      <Button className="btn-link" color="danger" size="sm" onClick={unlinkDiscord}>Unlink</Button>
+                    </p>
+                  ) : (
+                    <DiscordButton mode="link" label="Link Discord (imports your PlayStation, Xbox, Steam and Riot names)" />
+                  )}
+                  {discordError && <p className="text-danger">{discordError}</p>}
+                </Col>
+              </Row>
+              <Row>
+                <Col className="ml-auto mr-auto" md="5">
+                  <Form onSubmit={saveGamerTags}>
+                    {platforms.map(platform => (
+                      <FormGroup key={platform.key}>
+                        <Label for={"tag-" + platform.key}>{platform.label}</Label>
+                        <Input
+                          id={"tag-" + platform.key}
+                          type="text"
+                          maxLength={50}
+                          placeholder={platform.placeholder}
+                          value={gamerTags[platform.key] || ""}
+                          onChange={e => setGamerTags({ ...gamerTags, [platform.key]: e.target.value })}
+                        />
+                      </FormGroup>
+                    ))}
+                    <div className="text-center">
+                      <Button className="btn-round" color="danger" type="submit">
+                        Save
+                      </Button>
+                      {gamerTagsFeedback && (
+                        <h6 className={gamerTagsFeedback.color}>{gamerTagsFeedback.text}</h6>
+                      )}
+                    </div>
+                  </Form>
+                </Col>
+              </Row>
+              {rankGames.length > 0 && (
+                <>
+                  <Row>
+                    <Col className="ml-auto mr-auto text-center" md="6">
+                      <h3 className="title">Your ranks</h3>
+                      <p>Shown next to your name in rooms, and used to find rooms that accept your rank.</p>
+                    </Col>
+                  </Row>
+                  <Row>
+                    <Col className="ml-auto mr-auto" md="5">
+                      <Form onSubmit={saveRanks}>
+                        {rankGames.map(game => (
+                          <FormGroup key={"rank-" + game.id}>
+                            <Label for={"rank-" + game.id}>{game.gameName}</Label>
+                            <Input
+                              id={"rank-" + game.id}
+                              type="select"
+                              value={myRanks[game.id] || ""}
+                              onChange={e => setMyRanks({ ...myRanks, [game.id]: e.target.value })}
+                            >
+                              <option value="">Not set</option>
+                              {game.ranks.map(rank => <option key={rank} value={rank}>{rank}</option>)}
+                            </Input>
+                          </FormGroup>
+                        ))}
+                        <div className="text-center">
+                          <Button className="btn-round" color="danger" type="submit">
+                            Save ranks
+                          </Button>
+                          {ranksFeedback && (
+                            <h6 className={ranksFeedback.color}>{ranksFeedback.text}</h6>
+                          )}
+                        </div>
+                      </Form>
+                    </Col>
+                  </Row>
+                </>
+              )}
+            </TabPane>
+
+            {/* Blocked users */}
+            <TabPane className="text-left" tabId="8" id="blocked">
+              <Row>
+                <Col className="ml-auto mr-auto text-center" md="6">
+                  <h2 className="title">Blocked users</h2>
+                  <p>Blocked users can't send you friend requests or invites, can't join rooms you're in, and their chat messages are hidden from you.</p>
+                </Col>
+              </Row>
+              <Row>
+                <Col className="ml-auto mr-auto" md="5">
+                  {blocked.length === 0 && <p className="text-center text-muted">You haven't blocked anyone.</p>}
+                  <ul className="list-unstyled">
+                    {blocked.map(user => (
+                      <li key={user.username} className="d-flex justify-content-between align-items-center py-2 border-bottom">
+                        <span>{user.username}</span>
+                        <Button className="btn-round" color="default" outline size="sm" onClick={() => unblock(user.username)}>
+                          Unblock
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
                 </Col>
               </Row>
             </TabPane>

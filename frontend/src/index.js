@@ -17,13 +17,13 @@
 
 */
 import React from "react";
-import ReactDOM from "react-dom";
+import { createRoot } from "react-dom/client";
 import { BrowserRouter, Route, Redirect, Switch } from "react-router-dom";
 
 // styles
 import "bootstrap/scss/bootstrap.scss";
-import "assets/scss/paper-kit.scss?v=1.3.0";
-import "index.css";
+import "assets/scss/paper-kit.scss";
+import "./index.css";
 
 // pages
 import LandingPage from "views/LandingPage.js";
@@ -39,11 +39,12 @@ import Error404Page from "views/Error404Page";
 import ForumPage from "views/ForumPage";
 import ForumSinglePage from "views/ForumSinglePage";
 import ProfilePage from "views/ProfilePage";
+import DiscordCallbackPage from "views/DiscordCallbackPage";
 
 // others
 API.init();
 
-ReactDOM.render(
+createRoot(document.getElementById("root")).render(
   <BrowserRouter>
     <Switch>
       <Route
@@ -94,8 +95,11 @@ ReactDOM.render(
         path="/profile-page"
         render={(props) => <ProfilePage {...props} />}
       />
+      <Route
+        path="/discord-callback"
+        render={(props) => <DiscordCallbackPage {...props} />}
+      />
       <Redirect to="/landing-page" />
     </Switch>
-  </BrowserRouter>,
-  document.getElementById("root")
+  </BrowserRouter>
 );

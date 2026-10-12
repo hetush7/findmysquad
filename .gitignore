@@ -1,0 +1,29 @@
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.coverage
+htmlcov/
+
+# Local environment / secrets
+.env
+.env.*
+!.env.example
+!.env.prod.example
+
+# Local Postgres data (bind-mounted by docker-compose)
+/data/
+
+# Frontend
+frontend/node_modules/
+frontend/build/
+npm-debug.log*
+
+# Django collectstatic output
+staticfiles/

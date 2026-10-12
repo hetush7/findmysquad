@@ -22,3 +22,11 @@
     text-decoration: underline;
     cursor: pointer;
 }
+/* Discord brand colour for the sign-in button */
+.btn.discord-button,
+.btn.discord-button:hover,
+.btn.discord-button:focus {
+  border-color: #5865f2;
+  background-color: #5865f2;
+  color: #ffffff;
+}

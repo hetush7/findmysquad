@@ -1,6 +1,6 @@
 from django.urls import path
 from .views import * 
-from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.views import TokenBlacklistView, TokenRefreshView
 
 
 urlpatterns = [
@@ -10,13 +10,31 @@ urlpatterns = [
 	path('get-forums', GetForumsView.as_view()),
     path('create-session', SessionView.as_view()),
 	path('get-sessions', GetSessionsView.as_view()),
+	path('session/<int:session_id>', SessionDetailView.as_view()),
     path('game-info', GameInfoView.as_view()),
     path('forum-post', PostView.as_view()),
     path('friend-requests', FriendRequestsView.as_view()),
     path('friends', FriendsView.as_view()),
     path('profile-bio', ProfileBioView.as_view()),
     path('profile-image', ProfileImageView.as_view()),
+    path('gamer-tags', GamerTagsView.as_view()),
+    path('my-ranks', MyRanksView.as_view()),
+    path('session/<int:session_id>/invite', SessionInviteView.as_view()),
+    path('notifications', NotificationsView.as_view()),
+    path('endorse', EndorseView.as_view()),
+    path('endorsements/<str:username>', EndorsementsView.as_view()),
+    path('blocks', BlocksView.as_view()),
+    path('blocks/remove', UnblockView.as_view()),
+    path('report-user', ReportUserView.as_view()),
+    path('discord/config', DiscordConfigView.as_view()),
+    path('discord/authorize', DiscordAuthorizeView.as_view()),
+    path('discord/callback', DiscordCallbackView.as_view()),
+    path('discord/account', DiscordAccountView.as_view()),
+    path('session-chat/<int:session_id>', SessionChatView.as_view()),
+    path('session-chat/<int:session_id>/report', ReportChatMessageView.as_view()),
     path('update-password', UpdatePasswordView.as_view()),
     path('token', LoginView.as_view()),
+    path('token/refresh', TokenRefreshView.as_view()),
+    path('logout', TokenBlacklistView.as_view()),
 	path('user-check', CurrentUserCheck.as_view()),
 ]

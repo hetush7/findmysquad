@@ -18,6 +18,7 @@
 */
 import React from "react";
 import API from "api/API";
+import NotificationBell, { useNotifications } from "components/NotificationBell";
 
 import { Link } from "react-router-dom";
 // nodejs library that concatenates strings
@@ -42,26 +43,37 @@ function PageNavbar() {
   const [navbarColor, setNavbarColor] = React.useState("navbar-transparent");
   const [navbarCollapse, setNavbarCollapse] = React.useState(false);
   const [hrefLink,setLink] = React.useState(link);
+  const loggedIn = hrefLink === "/profile-page";
+  const notifications = useNotifications(loggedIn);
 
   const toggleNavbarCollapse = () => {
     setNavbarCollapse(!navbarCollapse);
     document.documentElement.classList.toggle("nav-open");
   };
 
+  // check who is logged in once per page load
   React.useEffect(() => {
-
-    async function updateIcon(){
+    async function updateIcon() {
+      if (!localStorage.getItem('access_token')) {
+        localStorage.removeItem('current_user');
+        setLink("/login-page");
+        return;
+      }
       let result = await api.currentUserCheck();
-      localStorage.setItem('current_user', result)
-      if (!result){
-        setLink("/login-page")
-      } else{
-        setLink("/profile-page")
+      if (!result) {
+        localStorage.removeItem('current_user');
+        setLink("/login-page");
+      } else {
+        localStorage.setItem('current_user', result);
+        setLink("/profile-page");
       }
     }
 
     updateIcon();
+    // eslint-disable-next-line
+  }, []);
 
+  React.useEffect(() => {
     const updateNavbarColor = () => {
       if (
         document.documentElement.scrollTop > 299 ||
@@ -81,7 +93,7 @@ function PageNavbar() {
     return function cleanup() {
       window.removeEventListener("scroll", updateNavbarColor);
     };
-  });
+  }, []);
 
 
   return (
@@ -100,6 +112,7 @@ function PageNavbar() {
           >
             Find My Squad
           </NavbarBrand>
+          {loggedIn && <NotificationBell notifications={notifications} inNav={false} className="notification-bell-mobile d-lg-none" />}
           <button
             aria-expanded={navbarCollapse}
             className={classnames("navbar-toggler navbar-toggler", {
@@ -148,6 +161,7 @@ function PageNavbar() {
                 Forums
               </NavLink>
             </NavItem>
+            {loggedIn && <NotificationBell notifications={notifications} className="d-none d-lg-block" />}
             <NavItem>
               <Button
                 className="btn-round"

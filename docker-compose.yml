@@ -1,28 +1,28 @@
-version: "3.3"
-
 services:
   db:
     image: postgres:13
     volumes:
       - ./data/db:/var/lib/postgresql/data
-    environment:
-      - POSTGRES_DB=postgres
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
+    env_file: .env
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     networks:
       - db
 
   web:
     build: .
     command: python manage.py runserver 0.0.0.0:8000
+    env_file: .env
     volumes:
       - .:/code
     ports:
       - "8000:8000"
-    links:
-      - db:db
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     networks:
       - db
   
@@ -30,11 +30,17 @@ services:
     restart: always
     command : npm start
     container_name: front
+    environment:
+      - REACT_APP_API_URL=${REACT_APP_API_URL:-http://localhost:8000}
     build:
       context: ./frontend/
       dockerfile: Dockerfile
     ports:
       - "3000:3000"
+    volumes:
+      # live-reload source changes; keep the image's node_modules
+      - ./frontend:/frontend
+      - /frontend/node_modules
     stdin_open: true
     depends_on:
       - web

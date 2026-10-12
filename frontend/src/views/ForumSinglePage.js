@@ -34,74 +34,65 @@ import {
 // core components
 import Navbar from "components/Navbars/PageNavbar.js";
 import Footer from "components/Footers/PageFooter.js";
-import { useHistory, useLocation } from "react-router";
+import { useHistory } from "react-router";
 import API from "api/API";
 
 
 function ForumSinglePage() {
-  let api = API.getApi();
+  const api = API.getApi();
   const { id } = useParams();
-  console.log({id})
-  // set state hook for session data, if there os sessionID from web storage, initialise with session of matching id
-  const [forum,setForum] = useState(() => {
-      let forumData = api.getForum(id);
-      console.log(forumData)
-      return forumData;
-  })
+  const history = useHistory();
+  const [forum, setForum] = useState(null);
+  const [postError, setPostError] = useState(null);
 
-  const [numOfPosts, setNumberofPosts] = useState(0)
-  
+  // fetch the forum (and its posts); unknown forum tags go to the 404 page
+  const loadForum = React.useCallback(async () => {
+    const data = await api.getForum(id);
+    if (!data) {
+      history.push("/error-404");
+      return;
+    }
+    setForum(data);
+  }, [api, id, history]);
+
   React.useEffect(() => {
-    apiCallback()
     document.body.classList.add("blog-posts");
     window.scrollTo(0, 0);
     document.body.scrollTop = 0;
     return function cleanup() {
       document.body.classList.remove("blog-posts");
     };
-  });
+  }, []);
 
-  function apiCallback(){
-    if (forum.title) {
-      setNumberofPosts(forum.posts.length)
-      console.log(forum.title)
-    } else{
-      forum.then(function(result) {
-        setForum(result)
-        console.log(forum)
-      })
-    }
-  }
-  
-  // redirect to error
-  let history = useHistory();
-  const { state } = useLocation();
-  function redirect() {
-    const { from } = state || { from: { pathname: "/error404" } };
-    history.push(from.pathname)
-  }
+  React.useEffect(() => {
+    loadForum();
+  }, [loadForum]);
 
   // form hooks
   const [post, setPost] = useState("");
 
   // submit form values
   async function submitHandler() {
+    if (!post.trim()) {
+      setPostError("Write something before posting.");
+      return;
+    }
     let newPost = await api.makePost([forum.tag, post]);
     if (!newPost){
-      //Error message here
+      setPostError("Couldn't post. Please try again.");
     } else {
-      window.location.reload()
+      setPost("");
+      setPostError(null);
+      loadForum();
     };
   }
 
   // TODO: Attach login check
   let isLoggedIn = localStorage.getItem('current_user');
 
-  if (forum == null) {
-    redirect();
-    return"";
+  if (forum === null) {
+    return <Navbar />;
   }
-  console.log(forum)
   // Render form submit
   function FormSubmit() {
     return (
@@ -131,7 +122,6 @@ function ForumSinglePage() {
 
   async function reportPost(e, post) {
     e.preventDefault();
-    console.log(post)
     let reportPost = await api.reportPost(post.id);
     if(reportPost){
       alert("Post has been reported.")
@@ -170,9 +160,11 @@ function ForumSinglePage() {
                       type="textarea"
                       rows="5"
                       style={{resize: "none"}}
+                      value={post}
                       onChange={ (e) => setPost(e.target.value)}
                       disabled={!isLoggedIn}
                     />
+                    {postError && <p className="text-danger">{postError}</p>}
                     <Row>
                       <Col className="ml-auto mr-auto" md="0">
                         <LoginButton />
@@ -186,7 +178,7 @@ function ForumSinglePage() {
               {/** Posts Section */}
               <Row xs={1} md={1} className="g-4">
               <Col md="12">
-                {Array.from({ length: numOfPosts }).map((_, idx) => (
+                {Array.from({ length: forum.posts.length }).map((_, idx) => (
                   <div key={"media"+idx}>
                     <Media>
                       <Media body>
